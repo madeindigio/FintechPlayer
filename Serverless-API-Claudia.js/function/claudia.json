@@ -1,0 +1,7 @@
+{
+  "lambda": {
+    "role": "function-executor",
+    "name": "claudia-webhook",
+    "region": "eu-south-2"
+  }
+}
