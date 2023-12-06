@@ -2,18 +2,24 @@
 
 > Neobank
 
-## Backoffice
+## Backend
+
+**Serverless API** made with [**Claudia.js**](https://claudiajs.com) using **TypeScript**.
+
+## Frontend
+
+### Backoffice
 
 Platform for administrators.
 
-## Enduser
+### Enduser
 
-Mobile apps and website for endusers.
+Website and mobile applications for clients.
 
-### Mobile apps
+#### Native app for Smartphones
 
-Mobile apps made with React Native
+**iOS** and **Android** app made with [**Expo.dev**](https://docs.expo.dev) using **Typescript**.
 
-### Website
+#### Website for Browsers
 
-Website made with React
+**Website** made with [**Expo.dev**](https://docs.expo.dev) using **Typescript**.

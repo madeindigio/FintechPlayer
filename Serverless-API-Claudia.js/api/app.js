@@ -1,13 +1,8 @@
-var ApiBuilder = require('claudia-api-builder'),
-  api = new ApiBuilder();
-
+"use strict";
+const ApiBuilder = require("claudia-api-builder");
+const api = new ApiBuilder();
+api.get('/', () => 'Hello world');
+api.get('/greet', (request) => {
+    return `Hello ${request.queryString.name}`;
+});
 module.exports = api;
-
-api.get('/hello', function () {
-  return 'hello world';
-});
-
-api.get('/greet', function (request) {
-  var superb = require('superb');
-  return request.queryString.name + ' is ' + superb.random();
-});
