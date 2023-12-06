@@ -1,13 +1,10 @@
 {
   "name": "claudia-api",
   "version": "1.0.0",
-  "description": "",
-  "main": "app.js",
   "scripts": {
+    "build": "npx tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "claudia-api-builder": "^4.1.2",
     "superb": "^4.0.0"
