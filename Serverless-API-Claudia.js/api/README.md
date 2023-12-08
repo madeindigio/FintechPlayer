@@ -1,4 +1,4 @@
-# Claudia.js - API
+# Claudia.js - Amazon API Gateway
 
 https://claudiajs.com/tutorials/hello-world-api-gateway.html
 
