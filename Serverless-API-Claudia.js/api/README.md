@@ -1,6 +1,7 @@
 # Claudia.js - Amazon API Gateway
 
-https://claudiajs.com/tutorials/hello-world-api-gateway.html
+- [Claudia.js](https://claudiajs.com/tutorials/hello-world-api-gateway.html)
+- [Amazon API Gateway](https://aws.amazon.com/api-gateway)
 
 ```
 $ npx tsc

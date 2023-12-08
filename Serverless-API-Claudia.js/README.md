@@ -1,7 +1,7 @@
-# Serverless API hosted on Google
-> Google Cloud Platform (GCP)
+# Serverless API hosted on Amazon
+> Amazon Web Services (AWS)
 
-This project uses [***node.js with typescript***](https://nodejs.org/en/learn/getting-started/nodejs-with-typescript) to make a **serverless API** hosted on [***Google Cloud Platform (GCP)***](https://cloud.google.com). A container image from the source code of this project is created with [***Google Cloud's buildpacks***](https://cloud.google.com/docs/buildpacks/overview), **100% compatible** with the [***Cloud Native Buildpacks***](https://buildpacks.io) project; and then deployed with Google's [FaaS](#faas) [***Google Cloud Functions***](https://cloud.google.com/functions).
+This project uses [***Claudia.js***](https://claudiajs.com) to make a **serverless API** with Amazon's [FaaS](#faas) [***AWS Lambda***](http://aws.amazon.com/lambda) and Amazon's [API gateway](#api-gateway) [***Amazon API Gateway***](https://aws.amazon.com/api-gateway).
 
 ## FaaS
 
@@ -16,3 +16,11 @@ This project uses [***node.js with typescript***](https://nodejs.org/en/learn/ge
 ## Serverless computing
 
 **Serverless computing** is a [cloud computing](#cloud-computing) execution model in which the cloud provider runs the server, and dynamically manages the allocation of machine resources. Pricing is based on the actual amount of resources consumed by an application, rather than on pre-purchased units of capacity. It can be a form of utility computing.
+
+## API gateway
+
+**API gateway** is an API [proxy](#proxy) which is fully managed service. It helps you create APIs and publish, monitor and maintain them. It is scalable, can handle concurrent calls, authorization, traffic management, etc.
+
+## Proxy
+
+**Proxy** is a server that acts as an intermediary for requests from clients seeking resources from other servers.
