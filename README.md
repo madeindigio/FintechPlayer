@@ -4,7 +4,9 @@
 
 ## Backend
 
-**Serverless API** made with [**Claudia.js**](https://claudiajs.com) using **TypeScript**.
+**Serverless API** written in **Typescript** and hosted on:
+- [***Amazon Web Services (AWS)***](http://aws.amazon.com/lambda)
+- [***Google Cloud Platform (GCP)***](https://cloud.google.com/functions)
 
 ## Frontend
 
