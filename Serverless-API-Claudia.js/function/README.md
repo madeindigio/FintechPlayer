@@ -1,4 +1,4 @@
-# Claudia.js - Lambda functions
+# Claudia.js - AWS Lambda Function
 
 https://claudiajs.com/tutorials/hello-world-lambda.html
 
