@@ -4,7 +4,7 @@
 
 ## Backend
 
-**Serverless API** written in **Typescript** and hosted on:
+**Serverless API** written in [**typescript**](https://nodejs.org/en/learn/getting-started/nodejs-with-typescript) and hosted on:
 - [***Amazon Web Services (AWS)***](http://aws.amazon.com/lambda)
 - [***Google Cloud Platform (GCP)***](https://cloud.google.com/functions)
 
