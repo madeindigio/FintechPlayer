@@ -1,0 +1,12 @@
+query AccountMembership($accountMembershipId: ID!) {
+  accountMembership(id: $accountMembershipId) {
+    id
+    account {
+      id
+      number
+      holder {
+        id
+      }
+    }
+  }
+}

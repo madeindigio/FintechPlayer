@@ -1,0 +1,98 @@
+query ProjectId {
+  projectInfo {
+    id
+  }
+}
+
+fragment OnboardingRedirectInfo on Onboarding {
+  __typename
+  id
+  account {
+    legalRepresentativeMembership {
+      id
+    }
+  }
+  redirectUrl
+  statusInfo {
+    __typename
+    status
+  }
+  oAuthRedirectParameters {
+    state
+    redirectUrl
+  }
+}
+
+query GetAccountMembershipInvitationData(
+  $inviterAccountMembershipId: ID!
+  $inviteeAccountMembershipId: ID!
+) {
+  projectInfo {
+    id
+    name
+    accentColor
+    logoUri
+  }
+  inviterAccountMembership: accountMembership(id: $inviterAccountMembershipId) {
+    email
+    user {
+      firstName
+      lastName
+    }
+    account {
+      name
+      number
+      holder {
+        info {
+          ... on AccountHolderCompanyInfo {
+            name
+          }
+          ... on AccountHolderIndividualInfo {
+            name
+          }
+        }
+      }
+    }
+  }
+  inviteeAccountMembership: accountMembership(id: $inviteeAccountMembershipId) {
+    id
+    email
+    statusInfo {
+      __typename
+      ... on AccountMembershipInvitationSentStatusInfo {
+        restrictedTo {
+          firstName
+        }
+      }
+    }
+  }
+}
+
+mutation FinalizeOnboarding($input: FinalizeOnboardingInput!) {
+  finalizeOnboarding(input: $input) {
+    __typename
+    ... on Rejection {
+      message
+    }
+    ... on FinalizeOnboardingSuccessPayload {
+      onboarding {
+        __typename
+        ...OnboardingRedirectInfo
+      }
+    }
+  }
+}
+
+mutation BindAccountMembership($input: BindAccountMembershipInput!) {
+  bindAccountMembership(input: $input) {
+    __typename
+    ... on BindAccountMembershipSuccessPayload {
+      accountMembership {
+        id
+      }
+    }
+    ... on Rejection {
+      message
+    }
+  }
+}

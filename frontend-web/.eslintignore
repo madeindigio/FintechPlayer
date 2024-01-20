@@ -1,0 +1,6 @@
+**/*.js
+**/*.mjs
+*.d.ts
+clients/**/graphql/*.ts
+docs/
+playwright.config.ts
