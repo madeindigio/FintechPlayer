@@ -23,12 +23,8 @@ $ yarn dev
 ```
 
 - Banking -> https://banking.swan.local:8080
-- Onboarding Individual
-    - English Account -> https://onboarding.swan.local:8080/onboarding/individual/start
-    - Spanish Account -> https://onboarding.swan.local:8080/onboarding/individual/start?accountCountry=ESP
-- Onboarding Company
-    - English Account -> https://onboarding.swan.local:8080/onboarding/company/start
-    - Spanish Account -> https://onboarding.swan.local:8080/onboarding/company/start?accountCountry=ESP
+- Onboarding Individual -> https://onboarding.swan.local:8080/onboarding/individual/start
+- Onboarding Company -> https://onboarding.swan.local:8080/onboarding/company/start
 
 ### Mobile app
 
