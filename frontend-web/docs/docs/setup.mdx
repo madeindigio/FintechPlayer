@@ -1,0 +1,103 @@
+---
+title: Set up your local environment
+sidebar_label: Set up your local environment
+---
+
+# Set up your local environment
+
+:::tip Prerequisites
+To use this project, you should have `git`, `node`, and `yarn` installed on your machine.
+:::
+
+## 1. Clone the project
+
+Clone the project using `git`.
+
+```console
+$ git clone git@github.com:swan-io/swan-partner-frontend.git
+$ cd swan-partner-frontend
+```
+
+## 2. Install dependencies
+
+Install [yarn](https://yarnpkg.com/en/docs/install), which is required to mangage the monorepository.
+
+```console
+$ yarn
+```
+
+## 3. Set up hosts
+
+We need to be able to replicate the subdomains used in production.
+You might need to use `sudo` to edit the `hosts` file.
+
+Add the following to your `/etc/hosts` file:
+
+```txt title="/etc/hosts"
+127.0.0.1 banking.swan.local
+127.0.0.1 onboarding.swan.local
+```
+
+## 4. Set up HTTPS and `mkcert`
+
+In order to replicate the production conditions (primarily for session cookies), the local server runs in HTTPS.
+Your system will warn against a self-signed certificate by default, so use [mkcert](https://github.com/FiloSottile/mkcert) to make your system trust it.
+
+import Tabs from "@theme/Tabs";
+import TabItem from "@theme/TabItem";
+
+<Tabs defaultValue="mac">
+<TabItem value="mac" label="macOS">
+
+With [Homebrew](https://brew.sh):
+
+```console
+$ brew install mkcert
+$ brew install nss # needed for Firefox
+$ cd server/keys
+$ mkcert -install
+$ mkcert "*.swan.local"
+```
+
+</TabItem>
+<TabItem value="win" label="Windows">
+
+With [Chocolatey](https://chocolatey.org):
+
+```console
+$ choco install mkcert
+$ cd server/keys
+$ mkcert -install
+$ mkcert "*.swan.local"
+```
+
+</TabItem>
+</Tabs>
+
+## 5. Configure your Swan project
+
+Configuring your Swan project is as simple as running one command and providing the requested information.
+
+You will be asked for your OAuth2 Client ID and Client Secret, available on [**Dashboard** > **Developers** > **API**](https://dashboard.swan.io).
+
+:::caution
+For local development, we recommend using your Sandbox credentials.
+:::
+
+To configure your project, run the following command:
+
+```console
+$ yarn configure
+```
+
+## 6. Add the provided redirect URL
+
+In order for the Swan OAuth2 server to recognize your environment, add the following URL in [**Dashboard** > **Developers** > **API** > **Redirect URLs**](https://dashboard.swan.io).
+
+```
+https://banking.swan.local:8080/auth/callback
+```
+
+:::tipSuccess
+🎉 Your repository is ready for development!
+:::

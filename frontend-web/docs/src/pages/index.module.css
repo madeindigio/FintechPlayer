@@ -1,0 +1,127 @@
+.hero {
+  background-color: #14191a;
+  background-image: url("/img/gradient.png");
+  background-size: cover;
+  background-position: 50% 50%;
+  color: #fff;
+}
+
+.hero a {
+  color: #fff;
+  border: 1px solid;
+}
+
+.heroTitle {
+  margin: 0;
+  padding: 0;
+  font-size: 48px;
+}
+
+@media (max-width: 1000px) {
+  .heroTitle {
+    font-size: 30px;
+    margin-top: 20px;
+  }
+}
+
+.heroSubtitle {
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.logo {
+  width: 100%;
+  max-width: 150px;
+  margin-right: 20px;
+  height: auto;
+  align-self: center;
+}
+
+@media (max-width: 1000px) {
+  .logo {
+    max-width: 100px;
+    margin-right: 0;
+  }
+}
+
+@media (max-width: 1000px) {
+  .hero {
+    flex-direction: column;
+    text-align: center;
+    align-items: stretch;
+  }
+}
+
+.featuredImage {
+  text-align: left;
+  width: 50%;
+  flex-shrink: 0;
+  margin: 0 auto;
+  aspect-ratio: 2920 / 1874;
+  position: relative;
+}
+
+@media (max-width: 1200px) {
+  .featuredImage {
+    width: 100%;
+    max-width: 50%;
+    flex-shrink: 1;
+  }
+}
+
+@media (max-width: 1000px) {
+  .featuredImage {
+    width: 100%;
+    max-width: 100%;
+    margin: 0 auto;
+  }
+}
+
+.separator {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+}
+
+@media (max-width: 1200px) {
+  .separator {
+    display: block;
+  }
+}
+
+.block {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  margin: 2rem 0;
+  background-color: rgba(246, 248, 250, 0.2);
+  border-radius: 1rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+}
+
+.blockReversed {
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  margin: 2rem 0;
+  background-color: rgba(246, 248, 250, 0.2);
+  border-radius: 1rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+}
+
+.blockSide {
+  flex-grow: 1;
+  padding: 2rem;
+  width: 50%;
+}
+
+@media (max-width: 920px) {
+  .block,
+  .blockReversed {
+    flex-direction: column;
+  }
+
+  .blockSide {
+    width: 100%;
+  }
+}

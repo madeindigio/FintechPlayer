@@ -1,0 +1,69 @@
+---
+title: Automate account membership invitation
+sidebar_label: Automate account membership invitation
+---
+
+When a new account membership is created, the invited user must accept the membership.
+
+By default, this is done with an invitation link.
+The link needs to be copied manually from the app and sent to the invited user.
+Then, the invited user opens the links and follows the prompts to accept the membership.
+
+Alternatively, you can **automate sending the link** by including a `sendAccountMembershipInvitation` in the `start` function called in `server/src/index.ts`.
+
+## Write expected signature
+
+The expected signature contains the following information:
+
+```ts
+export type InvitationConfig = {
+  accessToken: string;
+  requestLanguage: string;
+  inviteeAccountMembershipId: string;
+  inviterAccountMembershipId: string;
+};
+
+type sendAccountMembershipInvitation = (config: InvitationConfig) => Promise<unknown>;
+```
+
+## Review example
+
+Review Swan's internal implementation:
+
+```ts title="index.ts"
+const sendAccountMembershipInvitation = (invitationConfig: InvitationConfig) => {
+  // Get data from the API
+  return (
+    getAccountMembershipInvitationData({
+      accessToken: invitationConfig.accessToken,
+      inviteeAccountMembershipId: invitationConfig.inviteeAccountMembershipId,
+      inviterAccountMembershipId: invitationConfig.inviterAccountMembershipId,
+    })
+      // Build mailjet config
+      .mapOkToResult(invitationData =>
+        getMailjetInput({ invitationData, requestLanguage: invitationConfig.requestLanguage }),
+      )
+      // Send email
+      .flatMapOk(data => {
+        return Future.fromPromise(mailjet.post("send", { version: "v3.1" }).request(data));
+      })
+      .resultToPromise()
+  );
+};
+```
+
+## Pass to function parameters
+
+Pass the expected signature to the `start` function parameters:
+
+```ts title="index.ts"
+start({
+  mode: env.NODE_ENV,
+  // ...
+  sendAccountMembershipInvitation,
+});
+```
+
+:::tipsuccess
+With this configuration, sending the invitation is automated thanks to your function.
+:::

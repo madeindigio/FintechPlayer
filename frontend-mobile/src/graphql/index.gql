@@ -1,0 +1,114 @@
+query CardList($first: Int!, $after: String) {
+  projectInfo {
+    id
+    logoUri
+    name
+  }
+
+  cards(
+    first: $first
+    after: $after
+    filters: { statuses: [Enabled, Processing] }
+    orderBy: { direction: Desc, field: createdAt }
+  ) {
+    totalCount
+
+    pageInfo {
+      endCursor
+      hasNextPage
+    }
+
+    edges {
+      node {
+        cardDesignUrl
+        cardMaskedNumber
+        id
+        statusInfo {
+          status
+        }
+        cardProduct {
+          id
+          cardDesigns {
+            id
+            cardDesignUrl
+            cardBackground {
+              id
+              cardTextColor
+            }
+          }
+        }
+        accountMembership {
+          id
+          statusInfo {
+            status
+          }
+          user {
+            id
+            firstName
+            lastName
+          }
+        }
+      }
+    }
+  }
+
+  user {
+    id
+  }
+}
+
+mutation AddDigitalCard($input: AddDigitalCardInput!) {
+  addDigitalCard(input: $input) {
+    __typename
+
+    ... on AddDigitalCardSuccessPayload {
+      digitalCard {
+        id
+
+        statusInfo {
+          status
+          ... on DigitalCardConsentPendingStatusInfo {
+            consent {
+              id
+              consentUrl
+            }
+          }
+        }
+      }
+    }
+    ... on Rejection {
+      message
+    }
+  }
+}
+
+query GetDigitalCardsEncryptedInfo(
+  $cardId: ID!
+  $digitalCardId: String!
+  $signatureData: SignatureData
+) {
+  card(cardId: $cardId) {
+    id
+    digitalCards(filters: { id: $digitalCardId }) {
+      edges {
+        node {
+          id
+          ... on PendingDigitalCard {
+            id
+            statusInfo {
+              status
+            }
+            inAppProvisioningData(signatureData: $signatureData) {
+              activationData
+              encryptedData
+              ephemeralPublicKey
+              iv
+              oaepHashingAlgorithm
+              publicKeyFingerprint
+            }
+          }
+        }
+      }
+    }
+  }
+}
