@@ -38,9 +38,13 @@ For downloading from Google Play or App Store.
 
 > Middleware & Server
 
-In this [repository](/frontend-web/server) you'll find the Backend for Frontend, sometimes referred to as **BFF**.
+In this [repository](/frontend-web/server) you'll find the NodeJS server to handle OAuth2 callbacks & API proxying.
 
-BFF is responsible for:
+### BFF
+
+Backend for Frontend.
+
+**BFF** is responsible for:
 
 - Handling OAuth2
 - Managing user sessions
