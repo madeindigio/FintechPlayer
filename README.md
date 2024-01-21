@@ -6,6 +6,8 @@
 
 Platform for administrators.
 
+- Dashboard -> https://dashboard.swan.io
+
 ## Enduser
 
 Web and mobile application for **clients**.
@@ -29,6 +31,23 @@ $ yarn dev
 ### Mobile app
 
 For downloading from Google Play or App Store.
+
+In this [repository](/frontend-mobile) you'll find two apps:
+- iOS
+- Android
+
+To start the mobile development server, use:
+```
+$ yarn android
+# --- OR ---
+$ yarn ios
+```
+
+You will also need to start the backend development server:
+```
+$ cd server
+$ yarn dev
+```
 
 ## Backend
 
