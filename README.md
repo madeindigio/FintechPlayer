@@ -28,6 +28,12 @@ $ yarn dev
 - Onboarding Individual -> https://onboarding.swan.local:8080/onboarding/individual/start
 - Onboarding Company -> https://onboarding.swan.local:8080/onboarding/company/start
 
+#### Step by step guide
+
+1. Configure and serve onboarding and web banking at localhost: [README.md](/frontend-web/README.md)
+2. Individual onboarding: https://swan-io.github.io/swan-partner-frontend/specs/onboarding/individual/
+3. Validate new account: https://docs.swan.io/guide/quickstart#validate-the-new-account
+
 ### Mobile app
 
 For downloading from Google Play or App Store.
