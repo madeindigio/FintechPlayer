@@ -54,7 +54,8 @@ const FlowPicker = ({ onboardingId }: Props) => {
   const projectColor = project?.accentColor ?? invariantColors.defaultAccentColor;
   const holder = onboarding?.info;
 
-  useTitle((project?.name ?? "Swan") + " onboarding");
+  //useTitle((project?.name ?? "Swan") + " onboarding");
+  useTitle("Neom onboarding");
   useSessionTracking(project?.id);
 
   if (onboarding == null) {
