@@ -1,4 +1,4 @@
-FROM node:20 AS builder
+FROM node:20-bullseye AS builder
 WORKDIR /app
 ADD . .
 RUN yarn install --immutable --immutable-cache --check-cache && yarn graphql-codegen
