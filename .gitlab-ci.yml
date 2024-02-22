@@ -1,0 +1,22 @@
+stages:
+  - build
+
+variables:
+  REGISTRY_HOSTNAME: registry.digio.es/web/fintechplayer
+  DOCKER_BUILDKIT: 1
+
+build:
+  image: docker:20.10.16
+  stage: build
+  only:
+    - develop
+  services:
+    - docker:20.10.16-dind
+  before_script:
+    - export CI_COMMIT_BRANCH=$(echo "$CI_COMMIT_BRANCH" | tr '[:upper:]' '[:lower:]')
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -f frontend-web/Dockerfile -t $REGISTRY_HOSTNAME/$CI_COMMIT_BRANCH:$CI_PIPELINE_IID -t $REGISTRY_HOSTNAME/$CI_COMMIT_BRANCH:latest .
+    - docker push $REGISTRY_HOSTNAME/$CI_COMMIT_BRANCH:latest
+    - docker push $REGISTRY_HOSTNAME/$CI_COMMIT_BRANCH:$CI_PIPELINE_IID
+
