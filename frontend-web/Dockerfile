@@ -6,7 +6,7 @@ RUN yarn build
 
 
 FROM node:20-bullseye-slim
-WORKDIR /home/node
+WORKDIR /home/node/app
 
 RUN apt-get update && apt-get install -y --no-install-recommends dumb-init
 
