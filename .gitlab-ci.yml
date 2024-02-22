@@ -1,5 +1,6 @@
 stages:
   - build
+  - deploy
 
 variables:
   REGISTRY_HOSTNAME: registry.digio.es/web/fintechplayer
@@ -20,3 +21,17 @@ build:
     - docker push $REGISTRY_HOSTNAME/$CI_COMMIT_BRANCH:latest
     - docker push $REGISTRY_HOSTNAME/$CI_COMMIT_BRANCH:$CI_PIPELINE_IID
 
+deploy:
+  stage: deploy
+  image:
+    name: bitnami/kubectl
+    entrypoint: [""]
+  only:
+    - develop
+  before_script:
+    - export CI_COMMIT_BRANCH=$(echo "$CI_COMMIT_BRANCH" | tr '[:upper:]' '[:lower:]')
+    - export KUBECONFIG=$KUBECONFIG_FILE
+  script:
+    - DEPLOYMENT=$(kubectl get deploy -n unnax -l app=fintechplayer | tail -n +2 | awk '{print $1}')
+    - kubectl set image deployment/$DEPLOYMENT fintechplayer="$REGISTRY_HOSTNAME/$CI_COMMIT_BRANCH:$CI_PIPELINE_IID" -n unnax
+    - kubectl rollout status deployment/$DEPLOYMENT -n unnax
