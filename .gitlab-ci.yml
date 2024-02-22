@@ -9,8 +9,10 @@ variables:
 build:
   image: docker:20.10.16
   stage: build
-  only:
-    - develop
+  rules:
+    - if: $CI_COMMIT_BRANCH =='develop'
+      changes:
+        - frontend-web/*
   services:
     - docker:20.10.16-dind
   before_script:
@@ -26,8 +28,10 @@ deploy:
   image:
     name: bitnami/kubectl
     entrypoint: [""]
-  only:
-    - develop
+  rules:
+    - if: $CI_COMMIT_BRANCH =='develop'
+      changes:
+        - frontend-web/*
   before_script:
     - export CI_COMMIT_BRANCH=$(echo "$CI_COMMIT_BRANCH" | tr '[:upper:]' '[:lower:]')
     - export KUBECONFIG=$KUBECONFIG_FILE
