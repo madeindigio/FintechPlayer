@@ -4,7 +4,6 @@ ADD . .
 RUN yarn install --immutable --immutable-cache --check-cache && yarn graphql-codegen
 RUN yarn build
 
-
 FROM node:20-bullseye-slim
 WORKDIR /home/node/app
 
