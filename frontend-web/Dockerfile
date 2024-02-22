@@ -6,7 +6,7 @@ RUN yarn build
 
 
 FROM node:20-bullseye-slim
-WORKDIR /app
+WORKDIR /home/node
 
 RUN apt-get update && apt-get install -y --no-install-recommends dumb-init
 
@@ -14,7 +14,7 @@ USER node
 
 COPY --from=builder --chown=node /app/node_modules ./node_modules
 COPY --chown=node:node --from=builder /app/server/dist .
-COPY --from=builder --chown=node /home/node/app/package.json .
+COPY --from=builder --chown=node /app/package.json /home/node
 
 CMD ["dumb-init", "node", "index.js"]
 EXPOSE 8080
