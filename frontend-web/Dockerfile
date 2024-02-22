@@ -1,11 +1,19 @@
-FROM node:18 AS builder
+FROM node:20 AS builder
 WORKDIR /app
-ADD ./server/ ./
-RUN npm install
+ADD . .
+RUN yarn install --immutable --immutable-cache --check-cache && yarn graphql-codegen
+RUN yarn build
 
+FROM node:20-bullseye-slim
+WORKDIR /home/node/app
 
-FROM cgr.dev/chainguard/node:latest
-WORKDIR /app
-COPY --chown=node:node --from=builder /app ./
-CMD ["/usr/bin/npm", "start"]
+RUN apt-get update && apt-get install -y --no-install-recommends dumb-init
+
+USER node
+
+COPY --from=builder --chown=node /app/server/node_modules ./node_modules
+COPY --chown=node:node --from=builder /app/server/dist .
+COPY --from=builder --chown=node /app/package.json /home/node
+
+CMD ["dumb-init", "node", "index.js"]
 EXPOSE 8080
