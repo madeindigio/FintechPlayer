@@ -1,0 +1,41 @@
+stages:
+  - build
+  - deploy
+
+variables:
+  REGISTRY_HOSTNAME: registry.digio.es/web/fintechplayer
+  DOCKER_BUILDKIT: 1
+
+build:
+  image: docker:20.10.16
+  stage: build
+  rules:
+    - if: $CI_COMMIT_BRANCH =='develop'
+      changes:
+        - frontend-web/*
+  services:
+    - docker:20.10.16-dind
+  before_script:
+    - export CI_COMMIT_BRANCH=$(echo "$CI_COMMIT_BRANCH" | tr '[:upper:]' '[:lower:]')
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    - docker build -f frontend-web/Dockerfile -t $REGISTRY_HOSTNAME/$CI_COMMIT_BRANCH:$CI_PIPELINE_IID -t $REGISTRY_HOSTNAME/$CI_COMMIT_BRANCH:latest ./frontend-web
+    - docker push $REGISTRY_HOSTNAME/$CI_COMMIT_BRANCH:latest
+    - docker push $REGISTRY_HOSTNAME/$CI_COMMIT_BRANCH:$CI_PIPELINE_IID
+
+deploy:
+  stage: deploy
+  image:
+    name: bitnami/kubectl
+    entrypoint: [""]
+  rules:
+    - if: $CI_COMMIT_BRANCH =='develop'
+      changes:
+        - frontend-web/*
+  before_script:
+    - export CI_COMMIT_BRANCH=$(echo "$CI_COMMIT_BRANCH" | tr '[:upper:]' '[:lower:]')
+    - export KUBECONFIG=$KUBECONFIG_FILE
+  script:
+    - DEPLOYMENT=$(kubectl get deploy -n unnax -l app=fintechplayer | tail -n +2 | awk '{print $1}')
+    - kubectl set image deployment/$DEPLOYMENT fintechplayer="$REGISTRY_HOSTNAME/$CI_COMMIT_BRANCH:$CI_PIPELINE_IID" -n unnax
+    - kubectl rollout status deployment/$DEPLOYMENT -n unnax
