@@ -35,6 +35,7 @@ import { getFirstSupportedLanguage, t } from "../utils/i18n";
 import { Router } from "../utils/routes";
 import { partnerClient, unauthenticatedClient } from "../utils/urql";
 
+
 const styles = StyleSheet.create({
   base: {
     backgroundColor: backgroundColor.default,
