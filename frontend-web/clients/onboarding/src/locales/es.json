@@ -83,7 +83,7 @@
   "companyType.company": "Empresa",
   "companyType.other": "Otro",
   "companyType.selfEmployed": "Autónomo",
-  "emailPage.firstLink": "Términos y condiciones de Swan",
+  "emailPage.firstLink": "Términos y condiciones",
   "emailPage.secondLink": "Condiciones de colaboración de {partner}",
   "emailPage.terms": "Al hacer clic en \"siguiente\", estás aceptando {firstLink} y {secondLink}",
   "employmentStatus.craftsman": "Artesano",

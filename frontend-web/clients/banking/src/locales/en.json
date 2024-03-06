@@ -454,7 +454,7 @@
   "profile.email": "E-mail",
   "profile.faq": "FAQ",
   "profile.faq.description": "Our support articles for end users discuss topics such as identity verification, onboarding, reporting fraud, and more.",
-  "profile.faq.goToSupport": "Go to support.swan.io",
+  "profile.faq.goToSupport": "Go to support center",
   "profile.finalizeVerification": "Finalize verification",
   "profile.identityVerification.failed": "Some of the details on the ID provided don't seem to match up.",
   "profile.identityVerification.failed.description": "Please try again with another form of ID. Make sure it’s valid and in your own name.",

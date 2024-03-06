@@ -70,7 +70,7 @@
   "accountDetails.settings.tab": "Paramètres",
   "accountDetails.settings.taxIdentificationNumberInfo": "Si le numéro d'identification fiscale n'est pas fourni dans les 90 jours suivant l'ouverture du compte, celui-ci sera suspendu.",
   "accountDetails.settings.vatLabel": "TVA",
-  "accountDetails.swanTermsAndConditions": "Conditions générales de Swan",
+  "accountDetails.swanTermsAndConditions": "Conditions générales",
   "accountDetails.title.address": "Adresse",
   "accountDetails.title.contracts": "Contrats",
   "accountDetails.title.details": "Détails",

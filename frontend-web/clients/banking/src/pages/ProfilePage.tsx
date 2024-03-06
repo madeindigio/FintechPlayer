@@ -380,7 +380,7 @@ export const ProfilePage = ({
 
               <LakeButtonGroup paddingBottom={0}>
                 <LakeButton
-                  href="https://support.swan.io"
+                  href="https://digio.es"
                   hrefAttrs={{ target: "blank" }}
                   mode="secondary"
                   color="gray"

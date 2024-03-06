@@ -6,7 +6,7 @@
   "cardListScreen.addCardButton": "Añadir a {serviceName}",
   "cardListScreen.alreadyAdded": "Ya en {serviceName}",
   "cardListScreen.cannotBeAdded": "No se puede añadir",
-  "cardListScreen.description": "Aquí tienes tus tarjetas de Swan. Añádelas a {serviceName} para utilizarlas directamente desde tu dispositivo.",
+  "cardListScreen.description": "Aquí tienes tus tarjetas. Añádelas a {serviceName} para utilizarlas directamente desde tu dispositivo.",
   "cardListScreen.noCardMessage": "No se ha encontrado ninguna tarjeta",
   "cardListScreen.noWalletUsageMessage": "No se puede acceder al Wallet",
   "cardListScreen.showCardButton": "Mostrar en {serviceName}",
