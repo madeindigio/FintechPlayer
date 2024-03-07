@@ -236,8 +236,8 @@ export const AccountDetailsIbanPage = ({
                 <LakeText>
                   {formatNestedMessage("accountDetails.updateEmailMention", {
                     emailAddress: (
-                      <Link to="mailto:support@swan.io" style={styles.partnerColor}>
-                        support@swan.io
+                      <Link to="mailto:support@digio.es" style={styles.partnerColor}>
+                        support@digio.es
                       </Link>
                     ),
                   })}
