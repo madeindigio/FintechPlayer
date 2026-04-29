@@ -25,7 +25,6 @@ import {
   radii,
   spacings,
 } from "@swan-io/lake/src/constants/design";
-import { identity } from "@swan-io/lake/src/utils/function";
 import { filterRejectionsToResult } from "@swan-io/lake/src/utils/gql";
 import { isNotNullish } from "@swan-io/lake/src/utils/nullish";
 import { LakeModal } from "@swan-io/shared-business/src/components/LakeModal";
@@ -35,19 +34,23 @@ import { ReactNode, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { P, match } from "ts-pattern";
 import {
+  AdditionalInformationType,
+  ExpectedMonthlyMerchantProcessingVolume,
   MerchantPaymentMethodFragment,
-  MerchantPaymentMethodStatus,
   MerchantProfileFragment,
+  MerchantRequirementType,
   RequestMerchantPaymentMethodsDocument,
+  SupportingDocumentPurposeEnum,
 } from "../graphql/partner";
 import { usePermissions } from "../hooks/usePermissions";
 import { formatNestedMessage, t } from "../utils/i18n";
-import { GetRouteParams, Router } from "../utils/routes";
-import { useTgglFlag } from "../utils/tggl";
+import { RouteParams, Router } from "../utils/routes";
+import { formatPascalCaseToWords } from "../utils/templateTranslations";
 import { CheckDeclarationWizard } from "./CheckDeclarationWizard";
 import {
   MerchantProfilePaymentMethodCardRequestModal,
   MerchantProfilePaymentMethodCheckRequestModal,
+  MerchantProfilePaymentMethodInPersonCardRequestModal,
   MerchantProfilePaymentMethodInternalDirectDebitB2BRequestModal,
   MerchantProfilePaymentMethodInternalDirectDebitStandardRequestModal,
   MerchantProfilePaymentMethodSepaDirectDebitB2BRequestModal,
@@ -140,13 +143,104 @@ const Step = ({ number, children }: { number: number; children: ReactNode }) => 
   </Box>
 );
 
+const getExpectedMonthlyMerchantProcessingVolume = (
+  processingVolume: ExpectedMonthlyMerchantProcessingVolume,
+) =>
+  match(processingVolume)
+    .with("Between10000And100000", () =>
+      t("merchantProfile.settings.processingVolume.between10000And100000"),
+    )
+    .with("Between5000And10000", () =>
+      t("merchantProfile.settings.processingVolume.between5000And10000"),
+    )
+    .with("LessThan5000", () => t("merchantProfile.settings.processingVolume.lessThan5000"))
+    .with("MoreThan100000", () => t("merchantProfile.settings.processingVolume.moreThan100000"))
+
+    .exhaustive();
+
+const translateAdditionalInformations = (additionalInfo: AdditionalInformationType) =>
+  match(additionalInfo)
+    .with("NumberOfEmployees", () => t("merchantProfile.additionalInformation.NumberOfEmployees"))
+    .with("NumberOfOwners", () => t("merchantProfile.additionalInformation.NumberOfOwners"))
+    .with("NumberOfProperties", () => t("merchantProfile.additionalInformation.NumberOfProperties"))
+    .otherwise(() => additionalInfo);
+
+const translateRequirements = (fields: MerchantRequirementType) =>
+  match(fields)
+    .with("CustomerRegion", () => t("merchantProfile.requirements.CustomerRegion"))
+    .with("ExpectedAverageBasket", () => t("merchantProfile.requirements.ExpectedAverageBasket"))
+    .with("ExpectedMonthlyMerchantProcessingVolume", () =>
+      t("merchantProfile.requirements.ExpectedMonthlyMerchantProcessingVolume"),
+    )
+    .with("MerchantWebsite", () => t("merchantProfile.requirements.MerchantWebsite"))
+    .with("PaymentFrequency", () => t("merchantProfile.requirements.PaymentFrequency"))
+    .with("ProductType", () => t("merchantProfile.requirements.ProductType"))
+    .with("SocialNetwork", () => t("merchantProfile.requirements.SocialNetwork"))
+    .with("SupportWebsite", () => t("merchantProfile.requirements.SupportWebsite"))
+    .with("TermsAndConditions", () => t("merchantProfile.requirements.TermsAndConditions"))
+    .otherwise(() => fields);
+
+const translateSupportingDocuments = (supportingDoc: SupportingDocumentPurposeEnum) =>
+  match(supportingDoc)
+    .with("AdministratorDecisionOfAppointment", () =>
+      t("supportingDocuments.AdministratorDecisionOfAppointment.title"),
+    )
+    .with("AssociationRegistration", () => t("supportingDocuments.AssociationRegistration.title"))
+    .with("Banking", () => t("supportingDocuments.Banking.title"))
+    .with("CompanyFormationRegistration", () =>
+      t("supportingDocuments.CompanyFormationRegistration.title"),
+    )
+    .with("CompanyObligations", () => t("supportingDocuments.CompanyObligations.title"))
+    .with("CompanyRegistration", () => t("supportingDocuments.CompanyRegistration.title"))
+    .with("CompanyTreasury", () => t("supportingDocuments.CompanyTreasury.title"))
+    .with("Donation", () => t("supportingDocuments.Donation.title"))
+    .with("FinancialStatements", () => t("supportingDocuments.FinancialStatements.title"))
+    .with("GamblingPrizeWinnings", () => t("supportingDocuments.GamblingPrizeWinnings.title"))
+    .with("GeneralAssemblyMinutes", () => t("supportingDocuments.GeneralAssemblyMinutes.title"))
+    .with("Inheritance", () => t("supportingDocuments.Inheritance.title"))
+    .with("Investment", () => t("supportingDocuments.Investment.title"))
+    .with("LegalRepresentativeProofOfIdentity", () =>
+      t("supportingDocuments.LegalRepresentativeProofOfIdentity.title"),
+    )
+    .with("NIFAccreditationCard", () => t("supportingDocuments.NIFAccreditationCard.title"))
+    .with("Other", () => t("supportingDocuments.Other.title"))
+    .with("PepDeclaration", () => t("supportingDocuments.PepDeclaration.title"))
+    .with("PersonalIncome", () => t("supportingDocuments.PersonalIncome.title"))
+    .with("PersonalSavings", () => t("supportingDocuments.PersonalSavings.title"))
+    .with("PowerOfAttorney", () => t("supportingDocuments.PowerOfAttorney.title"))
+    .with("PresidentDecisionOfAppointment", () =>
+      t("supportingDocuments.PresidentDecisionOfAppointment.title"),
+    )
+    .with("ProofOfBusinessActivity", () => t("supportingDocuments.ProofOfBusinessActivity.title"))
+    .with("ProofOfCompanyAddress", () => t("supportingDocuments.ProofOfCompanyAddress.title"))
+    .with("ProofOfCompanyIncome", () => t("supportingDocuments.ProofOfCompanyIncome.title"))
+    .with("ProofOfIdentity", () => t("supportingDocuments.ProofOfIdentity.title"))
+    .with("ProofOfIndividualAddress", () => t("supportingDocuments.ProofOfIndividualAddress.title"))
+    .with("ProofOfIndividualIncome", () => t("supportingDocuments.ProofOfIndividualIncome.title"))
+    .with("ProofOfOriginOfFunds", () => t("supportingDocuments.ProofOfOriginOfFunds.title"))
+    .with("RealEstateIncome", () => t("supportingDocuments.RealEstateIncome.title"))
+    .with("SignedStatus", () => t("supportingDocuments.SignedStatus.title"))
+    .with("SwornStatement", () => t("supportingDocuments.SwornStatement.title"))
+    .with("Trade", () => t("supportingDocuments.Trade.title"))
+    .with("UBODeclaration", () => t("supportingDocuments.UBODeclaration.title"))
+    .with("USPersonStatusDeclaration", () =>
+      t("supportingDocuments.USPersonStatusDeclaration.title"),
+    )
+    .with("UltimateBeneficialOwnerProofOfAddress", () =>
+      t("supportingDocuments.UltimateBeneficialOwnerProofOfAddress.title"),
+    )
+    .with("UltimateBeneficialOwnerProofOfIdentity", () =>
+      t("supportingDocuments.UltimateBeneficialOwnerProofOfIdentity.title"),
+    )
+    .otherwise(() => supportingDoc);
+
 const MerchantProfileSettingsPaymentMethodTile = ({
   title,
   description,
   rollingReserve,
   icon,
   iconLarge,
-  status,
+  paymentMethod,
   renderRequestEditor,
   renderUpdateEditor,
   onDisable,
@@ -156,7 +250,7 @@ const MerchantProfileSettingsPaymentMethodTile = ({
   icon: ReactNode;
   iconLarge: ReactNode;
   rollingReserve: Option<{ percentage: number; rollingDays: number }>;
-  status?: MerchantPaymentMethodStatus;
+  paymentMethod: MerchantPaymentMethodFragment | undefined;
   renderRequestEditor: (config: { visible: boolean; onPressClose: () => void }) => ReactNode;
   renderUpdateEditor?: (config: { visible: boolean; onPressClose: () => void }) => ReactNode;
   onDisable: () => Future<Result<unknown, unknown>>;
@@ -177,6 +271,8 @@ const MerchantProfileSettingsPaymentMethodTile = ({
         setIsDisableModalOpen(false);
       });
   };
+
+  const status = paymentMethod?.statusInfo.status;
 
   return (
     <>
@@ -210,8 +306,13 @@ const MerchantProfileSettingsPaymentMethodTile = ({
                 {t("merchantProfile.settings.paymentMethods.status.Suspended")}
               </Tag>
             ))
+            .with("WaitingForInformation", () => (
+              <Tag color="warning">
+                {t("merchantProfile.settings.paymentMethods.status.WaitingForInformation")}
+              </Tag>
+            ))
             .with(P.nullish, () => null)
-            .exhaustive()}
+            .otherwise(() => null)}
 
           <Fill minWidth={8} />
 
@@ -252,7 +353,7 @@ const MerchantProfileSettingsPaymentMethodTile = ({
                 onPress={() => setIsRequestEditorOpen(true)}
               />
             ))
-            .with("Enabled", "PendingReview", () => (
+            .with("Enabled", "PendingReview", "WaitingForInformation", () => (
               <LakeButton
                 mode="tertiary"
                 color="negative"
@@ -326,8 +427,8 @@ const MerchantProfileSettingsPaymentMethodTile = ({
           <LakeText color={colors.gray[600]}>{description}</LakeText>
           <Space height={24} />
 
-          {match(status)
-            .with("Disabled", () => (
+          {match(paymentMethod?.statusInfo)
+            .with({ __typename: "DisabledMerchantPaymentMethodStatusInfo" }, () => (
               <>
                 <LakeAlert
                   variant="neutral"
@@ -337,7 +438,7 @@ const MerchantProfileSettingsPaymentMethodTile = ({
                 <Space height={24} />
               </>
             ))
-            .with("PendingReview", () => (
+            .with({ __typename: "PendingMerchantPaymentMethodStatusInfo" }, () => (
               <>
                 <LakeAlert
                   variant="info"
@@ -347,23 +448,30 @@ const MerchantProfileSettingsPaymentMethodTile = ({
                 <Space height={24} />
               </>
             ))
-            .with("Rejected", () => (
+            .with({ __typename: "RejectedMerchantPaymentMethodStatusInfo" }, () => (
               <>
                 <LakeAlert variant="error" title={t("merchantProfile.settings.details.Rejected")} />
                 <Space height={24} />
               </>
             ))
-            .with("Suspended", () => (
+            .with({ __typename: "SuspendedMerchantPaymentMethodStatusInfo" }, () => (
               <>
-                <LakeAlert
-                  variant="error"
-                  title={t("merchantProfile.settings.details.Suspended")}
-                />
+                <LakeAlert variant="error" title={t("merchantProfile.settings.details.Suspended")}>
+                  <LakeButton
+                    mode="secondary"
+                    size="small"
+                    color="negative"
+                    href="https://partner-support.swan.io/hc/en-gb/requests/new"
+                    hrefAttrs={{ target: "blank" }}
+                  >
+                    {t("common.contactSupport")}
+                  </LakeButton>
+                </LakeAlert>
 
                 <Space height={24} />
               </>
             ))
-            .with("Enabled", () => (
+            .with({ __typename: "EnabledMerchantPaymentMethodStatusInfo" }, () => (
               <LakeLabel
                 label={t("merchantProfile.settings.rollingReserve")}
                 type="view"
@@ -390,6 +498,122 @@ const MerchantProfileSettingsPaymentMethodTile = ({
                 }}
               />
             ))
+            .with(
+              { __typename: "WaitingForInformationMerchantPaymentMethodStatusInfo" },
+              ({ verificationRequirements }) => (
+                <>
+                  <LakeAlert
+                    title={t("merchantProfile.settings.waitingForInformation.title")}
+                    variant="warning"
+                  >
+                    <ScrollView>
+                      {verificationRequirements.map(requirement =>
+                        match(requirement)
+                          .with(
+                            { __typename: "AdditionalInformationRequirements" },
+                            ({ additionalInformation }) => (
+                              <>
+                                <Space height={4} />
+                                <LakeText variant="semibold" color={colors.gray[700]}>
+                                  {t(
+                                    "merchantProfile.settings.waitingForInformation.requirements.additionalInformation",
+                                  )}
+                                </LakeText>
+
+                                <View>
+                                  {[...additionalInformation].sort().map(info => (
+                                    <Box direction="row">
+                                      <LakeText color={colors.gray[700]}>•</LakeText>
+                                      <Space width={4} />
+                                      <LakeText color={colors.gray[700]}>
+                                        {translateAdditionalInformations(info)}
+                                      </LakeText>
+                                    </Box>
+                                  ))}
+                                </View>
+                              </>
+                            ),
+                          )
+                          .with({ __typename: "MerchantRequirements" }, ({ fields }) => (
+                            <>
+                              <Space height={4} />
+                              <LakeText variant="semibold" color={colors.gray[700]}>
+                                {t(
+                                  "merchantProfile.settings.waitingForInformation.requirements.merchantRequirements",
+                                )}
+                              </LakeText>
+
+                              <View>
+                                {[...fields].sort().map(info => (
+                                  <Box direction="row">
+                                    <LakeText color={colors.gray[700]}>•</LakeText>
+                                    <Space width={4} />
+                                    <LakeText color={colors.gray[700]}>
+                                      {translateRequirements(info)}
+                                    </LakeText>
+                                  </Box>
+                                ))}
+                              </View>
+                            </>
+                          ))
+                          .with(
+                            { __typename: "OtherAdditionalInformationRequirements" },
+                            ({ otherAdditionalInformation }) => (
+                              <>
+                                <Space height={4} />
+                                <LakeText variant="semibold" color={colors.gray[700]}>
+                                  {t(
+                                    "merchantProfile.settings.waitingForInformation.requirements.otherAdditionalInformationRequirements",
+                                  )}
+                                </LakeText>
+
+                                <View>
+                                  {[...otherAdditionalInformation].sort().map(info => (
+                                    <Box direction="row">
+                                      <LakeText color={colors.gray[700]}>•</LakeText>
+                                      <Space width={4} />
+                                      <LakeText color={colors.gray[700]}>
+                                        {formatPascalCaseToWords(info)}
+                                      </LakeText>
+                                    </Box>
+                                  ))}
+                                </View>
+                              </>
+                            ),
+                          )
+                          .with(
+                            { __typename: "SupportingDocumentRequirements" },
+                            ({ supportingDocumentPurposes }) => (
+                              <>
+                                <Space height={4} />
+                                <LakeText variant="semibold" color={colors.gray[700]}>
+                                  {t(
+                                    "merchantProfile.settings.waitingForInformation.requirements.supportingDocumentRequirements",
+                                  )}
+                                </LakeText>
+
+                                <View>
+                                  {[...supportingDocumentPurposes].sort().map(info => (
+                                    <Box direction="row">
+                                      <LakeText color={colors.gray[700]}>•</LakeText>
+                                      <Space width={4} />
+                                      <LakeText color={colors.gray[700]}>
+                                        {translateSupportingDocuments(info)}
+                                      </LakeText>
+                                    </Box>
+                                  ))}
+                                </View>
+                              </>
+                            ),
+                          )
+                          .exhaustive(),
+                      )}
+                    </ScrollView>
+                  </LakeAlert>
+                  <Space height={24} />
+                </>
+              ),
+            )
             .otherwise(() => null)}
         </View>
       </LakeModal>
@@ -438,19 +662,15 @@ const getPaymentMethod = <T extends MerchantPaymentMethodFragment["__typename"]>
 type Props = {
   merchantProfile: MerchantProfileFragment;
   large: boolean;
-  params: GetRouteParams<"AccountMerchantsProfileSettings">;
+  params: RouteParams<"AccountMerchantsProfileSettings">;
   onUpdate: () => void;
 };
 
 export const MerchantProfileSettings = ({ merchantProfile, large, params, onUpdate }: Props) => {
-  const checkDeclarationEnabled = useTgglFlag("checks").getOr(false);
-
   const [requestMerchantPaymentMethods] = useMutation(RequestMerchantPaymentMethodsDocument);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
-  const [isImageLoaded, setIsImageLoaded] = useState(
-    merchantProfile.merchantLogoUrl == null ? true : false,
-  );
+  const [isImageLoaded, setIsImageLoaded] = useState(merchantProfile.merchantLogoUrl == null);
   const [hasImageErrored, setHasImageErrored] = useState(false);
 
   const merchantPaymentMethods = merchantProfile.merchantPaymentMethods ?? [];
@@ -470,6 +690,12 @@ export const MerchantProfileSettings = ({ merchantProfile, large, params, onUpda
     merchantPaymentMethods,
     isRequestable: permissions.canRequestMerchantOnlineCardsPaymentMethod,
     type: "CardMerchantPaymentMethod",
+  });
+
+  const inPersonCardPaymentMethod = getPaymentMethod({
+    merchantPaymentMethods,
+    isRequestable: permissions.canRequestMerchantOnlineCardsPaymentMethod,
+    type: "InPersonCardMerchantPaymentMethod",
   });
 
   const internalDirectDebitB2BPaymentMethod = getPaymentMethod({
@@ -504,33 +730,6 @@ export const MerchantProfileSettings = ({ merchantProfile, large, params, onUpda
 
   return (
     <ScrollView contentContainerStyle={[styles.content, large && styles.contentDesktop]}>
-      {checkDeclarationEnabled &&
-      permissions.canDeclareChecks &&
-      checkPaymentMethod
-        .flatMap(identity)
-        .map(check => check.statusInfo.status === "Enabled")
-        .getOr(false) ? (
-        <>
-          <Box direction="row" alignItems="center">
-            <LakeButton
-              icon="check-regular"
-              size="small"
-              color="current"
-              onPress={() => {
-                Router.push("AccountMerchantsProfileSettings", {
-                  ...params,
-                  check: "declare",
-                });
-              }}
-            >
-              {t("merchantProfile.declareCheckButton")}
-            </LakeButton>
-          </Box>
-
-          <Space height={32} />
-        </>
-      ) : null}
-
       <LakeHeading level={2} variant="h4">
         {t("merchantProfile.settings.information.title")}
       </LakeHeading>
@@ -616,10 +815,6 @@ export const MerchantProfileSettings = ({ merchantProfile, large, params, onUpda
               .otherwise(() => null)}
           </Box>
 
-          {/*
-          Let's hide the button for now, and we'll add it back
-          when the simulator API to validate an edit is available.
-
           <Fill minWidth={32} />
 
           <Box direction="row" alignItems="center">
@@ -634,7 +829,7 @@ export const MerchantProfileSettings = ({ merchantProfile, large, params, onUpda
                 />
               ))
               .otherwise(() => null)}
-          </Box> */}
+          </Box>
         </Box>
 
         <Space height={24} />
@@ -716,7 +911,9 @@ export const MerchantProfileSettings = ({ merchantProfile, large, params, onUpda
               label={t("merchantProfile.request.expectedMonthlyPaymentVolume.label")}
               render={() => (
                 <LakeText color={colors.gray[900]}>
-                  {`${merchantProfile.expectedMonthlyPaymentVolume.value} ${merchantProfile.expectedMonthlyPaymentVolume.currency}`}
+                  {getExpectedMonthlyMerchantProcessingVolume(
+                    merchantProfile.expectedMonthlyMerchantProcessingVolume,
+                  )}
                 </LakeText>
               )}
             />
@@ -745,10 +942,10 @@ export const MerchantProfileSettings = ({ merchantProfile, large, params, onUpda
               color="gray"
               label={t("merchantProfile.request.merchantWebsite.label")}
               render={() =>
-                merchantProfile.merchantWebsite == null ? (
+                merchantProfile.merchantWebsiteUrl == null ? (
                   UNKNOWN_VALUE
                 ) : (
-                  <LakeText color={colors.gray[900]}>{merchantProfile.merchantWebsite}</LakeText>
+                  <LakeText color={colors.gray[900]}>{merchantProfile.merchantWebsiteUrl}</LakeText>
                 )
               }
             />
@@ -803,9 +1000,7 @@ export const MerchantProfileSettings = ({ merchantProfile, large, params, onUpda
                   rollingReserve={paymentMethod.flatMap(paymentMethod =>
                     Option.fromNullable(paymentMethod.rollingReserve),
                   )}
-                  status={paymentMethod
-                    .map(paymentMethod => paymentMethod.statusInfo.status)
-                    .toUndefined()}
+                  paymentMethod={paymentMethod.map(paymentMethod => paymentMethod).toUndefined()}
                   renderRequestEditor={({ visible, onPressClose }) => (
                     <MerchantProfilePaymentMethodCardRequestModal
                       merchantProfileId={merchantProfile.id}
@@ -834,6 +1029,50 @@ export const MerchantProfileSettings = ({ merchantProfile, large, params, onUpda
               ))
               .otherwise(() => null)}
 
+            {match(inPersonCardPaymentMethod)
+              .with(Option.P.Some(P.select()), paymentMethod => (
+                <MerchantProfileSettingsPaymentMethodTile
+                  title={t("merchantProfile.settings.paymentMethods.inPersonCard.title")}
+                  description={t(
+                    "merchantProfile.settings.paymentMethods.inPersonCard.description",
+                  )}
+                  icon={<Icon name="payment-regular" color={colors.gray[900]} size={24} />}
+                  iconLarge={<Icon name="payment-regular" color={colors.gray[900]} size={42} />}
+                  rollingReserve={paymentMethod.flatMap(paymentMethod =>
+                    Option.fromNullable(paymentMethod.rollingReserve),
+                  )}
+                  paymentMethod={paymentMethod.map(paymentMethod => paymentMethod).toUndefined()}
+                  renderRequestEditor={({ visible, onPressClose }) => (
+                    <MerchantProfilePaymentMethodInPersonCardRequestModal
+                      merchantProfileId={merchantProfile.id}
+                      visible={visible}
+                      onPressClose={onPressClose}
+                      onSuccess={() => {
+                        onUpdate();
+                        onPressClose();
+                      }}
+                    />
+                  )}
+                  onDisable={() =>
+                    requestMerchantPaymentMethods({
+                      input: {
+                        merchantProfileId: merchantProfile.id,
+                        inPersonCard: { activate: false },
+                      },
+                    })
+                      .mapOkToResult(data =>
+                        Option.fromNullable(data.requestMerchantPaymentMethods).toResult("No data"),
+                      )
+                      .mapOkToResult(filterRejectionsToResult)
+                      .tapOk(() => onUpdate())
+                      .tapError(error => {
+                        showToast({ variant: "error", title: translateError(error), error });
+                      })
+                  }
+                />
+              ))
+              .otherwise(() => null)}
+
             {match(internalDirectDebitB2BPaymentMethod)
               .with(Option.P.Some(P.select()), paymentMethod => (
                 <MerchantProfileSettingsPaymentMethodTile
@@ -846,9 +1085,7 @@ export const MerchantProfileSettings = ({ merchantProfile, large, params, onUpda
                   )}
                   icon={<SwanLogo style={styles.swanLogo} />}
                   iconLarge={<SwanLogo style={styles.swanLogoLarge} />}
-                  status={paymentMethod
-                    .map(paymentMethod => paymentMethod.statusInfo.status)
-                    .toUndefined()}
+                  paymentMethod={paymentMethod.map(paymentMethod => paymentMethod).toUndefined()}
                   renderRequestEditor={({ visible, onPressClose }) => (
                     <MerchantProfilePaymentMethodInternalDirectDebitB2BRequestModal
                       merchantProfileId={merchantProfile.id}
@@ -894,9 +1131,7 @@ export const MerchantProfileSettings = ({ merchantProfile, large, params, onUpda
                   )}
                   icon={<SwanLogo style={styles.swanLogo} />}
                   iconLarge={<SwanLogo style={styles.swanLogoLarge} />}
-                  status={paymentMethod
-                    .map(paymentMethod => paymentMethod.statusInfo.status)
-                    .toUndefined()}
+                  paymentMethod={paymentMethod.map(paymentMethod => paymentMethod).toUndefined()}
                   renderRequestEditor={({ visible, onPressClose }) => (
                     <MerchantProfilePaymentMethodInternalDirectDebitStandardRequestModal
                       merchantProfileId={merchantProfile.id}
@@ -944,9 +1179,7 @@ export const MerchantProfileSettings = ({ merchantProfile, large, params, onUpda
                     </View>
                   }
                   iconLarge={<SepaLogo height={24} />}
-                  status={paymentMethod
-                    .map(paymentMethod => paymentMethod.statusInfo.status)
-                    .toUndefined()}
+                  paymentMethod={paymentMethod.map(paymentMethod => paymentMethod).toUndefined()}
                   renderRequestEditor={({ visible, onPressClose }) => (
                     <MerchantProfilePaymentMethodSepaDirectDebitB2BRequestModal
                       merchantProfileId={merchantProfile.id}
@@ -1021,9 +1254,7 @@ export const MerchantProfileSettings = ({ merchantProfile, large, params, onUpda
                     </View>
                   }
                   iconLarge={<SepaLogo height={24} />}
-                  status={paymentMethod
-                    .map(paymentMethod => paymentMethod.statusInfo.status)
-                    .toUndefined()}
+                  paymentMethod={paymentMethod.map(paymentMethod => paymentMethod).toUndefined()}
                   renderRequestEditor={({ visible, onPressClose }) => (
                     <MerchantProfilePaymentMethodSepaDirectDebitCoreRequestModal
                       merchantProfileId={merchantProfile.id}
@@ -1092,9 +1323,7 @@ export const MerchantProfileSettings = ({ merchantProfile, large, params, onUpda
                   )}
                   icon={<Icon name="check-regular" color={colors.gray[900]} size={24} />}
                   iconLarge={<Icon name="check-regular" color={colors.gray[900]} size={42} />}
-                  status={paymentMethod
-                    .map(paymentMethod => paymentMethod.statusInfo.status)
-                    .toUndefined()}
+                  paymentMethod={paymentMethod.map(paymentMethod => paymentMethod).toUndefined()}
                   renderRequestEditor={({ visible, onPressClose }) => (
                     <MerchantProfilePaymentMethodCheckRequestModal
                       merchantProfileId={merchantProfile.id}

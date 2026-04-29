@@ -1,4 +1,4 @@
-import { Array, Option, Result } from "@swan-io/boxed";
+import { Option, Result } from "@swan-io/boxed";
 import { Link } from "@swan-io/chicane";
 import { useMutation, useQuery } from "@swan-io/graphql-client";
 import { BorderedIcon } from "@swan-io/lake/src/components/BorderedIcon";
@@ -25,22 +25,23 @@ import { isNotNullish } from "@swan-io/lake/src/utils/nullish";
 import { GetNode } from "@swan-io/lake/src/utils/types";
 import { showToast } from "@swan-io/shared-business/src/state/toasts";
 import { translateError } from "@swan-io/shared-business/src/utils/i18n";
+import { validateRequired } from "@swan-io/shared-business/src/utils/validation";
 import { combineValidators, useForm } from "@swan-io/use-form";
 import dayjs from "dayjs";
 import { useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Rifm } from "rifm";
-import { P, isMatching } from "ts-pattern";
+import { P, isMatching, match } from "ts-pattern";
 import {
   AccountLanguage,
+  AccountStatementFormat,
   AccountStatementsPageDocument,
   AccountStatementsPageQuery,
   GenerateAccountStatementDocument,
-  StatementType,
 } from "../graphql/partner";
 import { usePermissions } from "../hooks/usePermissions";
 import { accountLanguages, languages, locale, rifmDateProps, t } from "../utils/i18n";
-import { validateDate, validateRequired } from "../utils/validations";
+import { validateDate } from "../utils/validations";
 import { Connection } from "./Connection";
 import { ErrorView } from "./ErrorView";
 
@@ -125,40 +126,43 @@ const columns: ColumnConfig<Statement, ExtraInfo>[] = [
     width: 150,
     id: "generated",
     renderTitle: ({ title }) => <HeaderCell text={title} />,
-    renderCell: ({ item: { createdAt, status } }) => {
-      return status === "Available" ? (
-        <TextCell variant="smallMedium" text={dayjs(createdAt).format("MMM, DD YYYY")} />
-      ) : null;
-    },
+    renderCell: ({ item: { createdAt, statusInfo } }) =>
+      match(statusInfo)
+        .with({ __typename: P.union("GeneratedStatusInfo", "VoidedStatusInfo") }, () => (
+          <TextCell variant="smallMedium" text={dayjs(createdAt).format("MMM, DD YYYY")} />
+        ))
+        .otherwise(() => null),
   },
   {
     title: "notReady",
     width: 180,
     id: "notReady",
     renderTitle: () => null,
-    renderCell: ({ item: { status } }) => {
-      return status === "Available" ? null : (
-        <TextCell
-          align="right"
-          color={colors.gray[300]}
-          variant="smallMedium"
-          text={t("accountStatements.notReady")}
-        />
-      );
-    },
+    renderCell: ({ item: { statusInfo } }) =>
+      match(statusInfo)
+        .with({ __typename: P.union("GeneratedStatusInfo", "VoidedStatusInfo") }, () => null)
+        .otherwise(() => (
+          <TextCell
+            align="right"
+            color={colors.gray[300]}
+            variant="smallMedium"
+            text={t("accountStatements.notReady")}
+          />
+        )),
   },
   {
     width: 40,
     id: "actions",
     title: "",
     renderTitle: () => null,
-    renderCell: ({ item: { status } }) => {
-      return status === "Available" ? (
-        <Cell align="center">
-          <Icon name="open-regular" size={16} color={colors.gray[300]} />
-        </Cell>
-      ) : null;
-    },
+    renderCell: ({ item: { statusInfo } }) =>
+      match(statusInfo)
+        .with({ __typename: P.union("GeneratedStatusInfo", "VoidedStatusInfo") }, () => (
+          <Cell align="center">
+            <Icon name="open-regular" size={16} color={colors.gray[300]} />
+          </Cell>
+        ))
+        .otherwise(() => null),
   },
 ];
 
@@ -181,20 +185,22 @@ const smallColumns: ColumnConfig<Statement, ExtraInfo>[] = [
     id: "actions",
     title: "",
     renderTitle: () => null,
-    renderCell: ({ item: { status } }) => {
+    renderCell: ({ item: { statusInfo } }) => {
       return (
-        <Cell align="right">
-          {status === "Available" ? (
-            <Icon name="open-regular" size={16} color={colors.gray[300]} />
-          ) : (
-            <BorderedIcon
-              name="clock-regular"
-              padding={4}
-              size={24}
-              color="warning"
-              borderRadius={4}
-            />
-          )}
+        <Cell align="center">
+          {match(statusInfo)
+            .with({ __typename: P.union("GeneratedStatusInfo", "VoidedStatusInfo") }, () => (
+              <Icon name="open-regular" size={16} color={colors.gray[300]} />
+            ))
+            .otherwise(() => (
+              <BorderedIcon
+                name="clock-regular"
+                padding={4}
+                size={24}
+                color="warning"
+                borderRadius={4}
+              />
+            ))}
         </Cell>
       );
     },
@@ -203,7 +209,7 @@ const smallColumns: ColumnConfig<Statement, ExtraInfo>[] = [
 
 const PER_PAGE = 20;
 
-const statementTypeList: StatementType[] = ["PDF", "CSV"];
+const statementTypeList: AccountStatementFormat[] = ["PDF", "CSV"];
 
 const NewStatementForm = ({
   large,
@@ -214,7 +220,7 @@ const NewStatementForm = ({
   const { Field, submitForm } = useForm<{
     startDate: string;
     closingDate: string;
-    format: StatementType;
+    format: AccountStatementFormat;
     language: AccountLanguage;
   }>({
     startDate: {
@@ -300,7 +306,7 @@ const NewStatementForm = ({
               closingDate: dayjs
                 .utc(closingDate, locale.dateFormat)
                 .format("YYYY-MM-DDT23:59:59.999+01:00"),
-              statementType: format,
+              format,
               language,
             },
           })
@@ -338,9 +344,7 @@ const NewStatementForm = ({
                         ref={ref}
                         value={value}
                         placeholder={locale.datePlaceholder}
-                        onChange={e =>
-                          onChange(e as unknown as React.ChangeEvent<HTMLInputElement>)
-                        }
+                        onChange={e => onChange(e as React.ChangeEvent<HTMLInputElement>)}
                         onBlur={onBlur}
                         error={error}
                       />
@@ -367,9 +371,7 @@ const NewStatementForm = ({
                         ref={ref}
                         value={value}
                         placeholder={locale.datePlaceholder}
-                        onChange={e =>
-                          onChange(e as unknown as React.ChangeEvent<HTMLInputElement>)
-                        }
+                        onChange={e => onChange(e as React.ChangeEvent<HTMLInputElement>)}
                         onBlur={onBlur}
                         error={error}
                       />
@@ -526,18 +528,19 @@ export const AccountStatementCustom = ({ accountId, large }: Props) => {
                                 groupHeaderHeight={48}
                                 extraInfo={{ large }}
                                 columns={columns}
-                                getRowLink={({ item }) => {
-                                  const availableItem =
-                                    item.status === "Available" ? Option.Some(item) : Option.None();
-                                  return availableItem
-                                    .flatMap(item =>
-                                      Array.findMap(item.type, item =>
-                                        Option.fromNullable(item?.url),
-                                      ),
+                                getRowLink={({ item }) =>
+                                  match(item.statusInfo)
+                                    .with(
+                                      {
+                                        __typename: P.union(
+                                          "GeneratedStatusInfo",
+                                          "VoidedStatusInfo",
+                                        ),
+                                      },
+                                      ({ url }) => <Link to={url} target="_blank" />,
                                     )
-                                    .map(url => <Link to={url} target="_blank" />)
-                                    .getOr(<View />);
-                                }}
+                                    .otherwise(() => <View />)
+                                }
                                 loading={{
                                   isLoading,
                                   count: NUM_TO_RENDER,

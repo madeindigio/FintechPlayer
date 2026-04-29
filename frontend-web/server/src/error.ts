@@ -1,9 +1,8 @@
 import { HttpErrorCodes } from "@fastify/sensible/lib/httpError";
 import { Accepts } from "accepts";
 import escapeHtml from "escape-html";
-import { FastifyInstance, FastifyReply, FastifyRequest, RouteGenericInterface } from "fastify";
+import { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import fs from "node:fs";
-import { Http2SecureServer, Http2ServerRequest, Http2ServerResponse } from "node:http2";
 import path from "pathe";
 import { match } from "ts-pattern";
 
@@ -20,9 +19,9 @@ const getAcceptType = (accept: Accepts): "html" | "json" => {
 };
 
 export const replyWithError = (
-  app: FastifyInstance<Http2SecureServer, Http2ServerRequest, Http2ServerResponse>,
-  request: FastifyRequest<RouteGenericInterface, Http2SecureServer, Http2ServerRequest>,
-  reply: FastifyReply<Http2SecureServer, Http2ServerRequest, Http2ServerResponse>,
+  app: FastifyInstance,
+  request: FastifyRequest,
+  reply: FastifyReply,
   { status, requestId }: { status: Exclude<HttpErrorCodes, string>; requestId: string },
 ) => {
   const accept = request.accepts();
@@ -32,12 +31,14 @@ export const replyWithError = (
       const error = app.httpErrors.getHttpError(status);
 
       return reply
+        .header("cache-control", "private, max-age=0")
         .type("application/json")
         .status(status)
         .send({ ...error, requestId });
     })
     .otherwise(() => {
       return reply
+        .header("cache-control", "private, max-age=0")
         .type("text/html")
         .status(status)
         .send(errorTemplate.replaceAll("{{REQUEST_ID}}", escapeHtml(requestId)));
@@ -45,9 +46,9 @@ export const replyWithError = (
 };
 
 export const replyWithAuthError = (
-  app: FastifyInstance<Http2SecureServer, Http2ServerRequest, Http2ServerResponse>,
-  request: FastifyRequest<RouteGenericInterface, Http2SecureServer, Http2ServerRequest>,
-  reply: FastifyReply<Http2SecureServer, Http2ServerRequest, Http2ServerResponse>,
+  app: FastifyInstance,
+  request: FastifyRequest,
+  reply: FastifyReply,
   { status, description }: { status: Exclude<HttpErrorCodes, string>; description: string },
 ) => {
   const accept = request.accepts();

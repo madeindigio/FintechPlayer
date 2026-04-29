@@ -1,48 +1,31 @@
-import { Dict, Future } from "@swan-io/boxed";
+import { Future } from "@swan-io/boxed";
 import { Box } from "@swan-io/lake/src/components/Box";
 import { Fill } from "@swan-io/lake/src/components/Fill";
-import { FilterChooser } from "@swan-io/lake/src/components/FilterChooser";
 import { LakeButton } from "@swan-io/lake/src/components/LakeButton";
-import { LakeSearchField } from "@swan-io/lake/src/components/LakeSearchField";
+import { Separator } from "@swan-io/lake/src/components/Separator";
 import { Space } from "@swan-io/lake/src/components/Space";
 import { Toggle } from "@swan-io/lake/src/components/Toggle";
-import { emptyToUndefined, isNotNullish } from "@swan-io/lake/src/utils/nullish";
-import {
-  FilterCheckboxDef,
-  FiltersStack,
-  FiltersState,
-} from "@swan-io/shared-business/src/components/Filters";
-import { ReactNode, useEffect, useMemo, useState } from "react";
-import { StyleSheet } from "react-native";
+import { emptyToUndefined } from "@swan-io/lake/src/utils/nullish";
+import { ReactNode, useState } from "react";
 import { CardType } from "../graphql/partner";
 import { t } from "../utils/i18n";
-
-const typeFilter: FilterCheckboxDef<CardType> = {
-  type: "checkbox",
-  checkAllLabel: t("common.filters.all"),
-  items: [
-    { value: "Virtual", label: t("cards.format.virtual") },
-    { value: "VirtualAndPhysical", label: t("cards.format.virtualAndPhysical") },
-    { value: "SingleUseVirtual", label: t("cards.format.singleUse") },
-  ],
-  label: t("cardList.type"),
-};
-
-const styles = StyleSheet.create({
-  endFilters: {
-    flexGrow: 0,
-    flexShrink: 1,
-  },
-});
+import { filter, Filters, FiltersState } from "./Filters";
+import { SearchInput } from "./SearchInput";
 
 const filtersDefinition = {
-  type: typeFilter,
+  type: filter.checkbox<CardType>({
+    label: t("cardList.type"),
+    items: [
+      { value: "Virtual", label: t("cards.format.virtual") },
+      { value: "VirtualAndPhysical", label: t("cards.format.virtualAndPhysical") },
+      { value: "SingleUseVirtual", label: t("cards.format.singleUse") },
+    ],
+  }),
 };
 
 export type CardFilters = FiltersState<typeof filtersDefinition>;
 
 type TransactionListFilterProps = {
-  available?: readonly (keyof CardFilters)[];
   children?: ReactNode;
   large?: boolean;
   filters: CardFilters;
@@ -54,10 +37,7 @@ type TransactionListFilterProps = {
   onChangeStatus: (status: "Active" | "Canceled") => void;
 };
 
-const defaultAvailableFilters = ["type"] as const;
-
 export const CardListFilter = ({
-  available = defaultAvailableFilters,
   children,
   large = true,
   filters,
@@ -68,37 +48,6 @@ export const CardListFilter = ({
   onChangeSearch,
   onChangeStatus,
 }: TransactionListFilterProps) => {
-  const availableSet = useMemo(() => new Set(available), [available]);
-
-  const availableFilters: { name: keyof CardFilters; label: string }[] = useMemo(
-    () =>
-      (
-        [
-          {
-            name: "type",
-            label: t("cardList.type"),
-          },
-        ] as const
-      ).filter(item => availableSet.has(item.name)),
-    [availableSet],
-  );
-
-  const [openFilters, setOpenFilters] = useState(() =>
-    Dict.entries(filters)
-      .filter(([, value]) => isNotNullish(value))
-      .map(([name]) => name),
-  );
-
-  useEffect(() => {
-    setOpenFilters(openFilters => {
-      const currentlyOpenFilters = new Set(openFilters);
-      const openFiltersNotYetInState = Dict.entries(filters)
-        .filter(([name, value]) => isNotNullish(value) && !currentlyOpenFilters.has(name))
-        .map(([name]) => name);
-      return [...openFilters, ...openFiltersNotYetInState];
-    });
-  }, [filters]);
-
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   return (
@@ -107,24 +56,29 @@ export const CardListFilter = ({
         {children != null ? (
           <>
             {children}
-
-            <Space width={16} />
+            <Separator horizontal={true} space={12} />
           </>
         ) : null}
 
-        <FilterChooser
-          filters={filters}
-          openFilters={openFilters}
-          label={t("common.filters")}
-          onAddFilter={filter => setOpenFilters(openFilters => [...openFilters, filter])}
-          availableFilters={availableFilters}
-          large={large}
+        <Filters
+          definition={filtersDefinition}
+          values={filters}
+          onChange={onChangeFilters}
+          toggle={
+            <Toggle
+              compact={!large}
+              value={status === "Active"}
+              onToggle={status => onChangeStatus(status ? "Active" : "Canceled")}
+              labelOn={t("cardList.status.Active")}
+              labelOff={t("cardList.status.Canceled")}
+            />
+          }
         />
 
-        {large ? (
-          <>
-            <Space width={16} />
+        <Fill minWidth={16} />
 
+        {large && (
+          <>
             <LakeButton
               ariaLabel={t("common.refresh")}
               mode="secondary"
@@ -136,40 +90,19 @@ export const CardListFilter = ({
                 onRefresh().tap(() => setIsRefreshing(false));
               }}
             />
+
+            <Space width={8} />
           </>
-        ) : null}
+        )}
 
-        <Fill minWidth={16} />
-
-        <Box direction="row" alignItems="center" justifyContent="end" style={styles.endFilters}>
-          <Toggle
-            mode={large ? "desktop" : "mobile"}
-            value={status === "Active"}
-            onToggle={status => onChangeStatus(status ? "Active" : "Canceled")}
-            onLabel={t("cardList.status.Active")}
-            offLabel={t("cardList.status.Canceled")}
-          />
-
-          <Space width={16} />
-
-          <LakeSearchField
-            key={String(large)}
-            placeholder={t("common.search")}
-            initialValue={search ?? ""}
-            onChangeText={text => onChangeSearch(emptyToUndefined(text))}
-          />
-        </Box>
+        <SearchInput
+          initialValue={search ?? ""}
+          collapsed={!large}
+          onChangeText={text => onChangeSearch(emptyToUndefined(text))}
+        />
       </Box>
 
       <Space height={12} />
-
-      <FiltersStack
-        definition={filtersDefinition}
-        filters={filters}
-        openedFilters={openFilters}
-        onChangeFilters={onChangeFilters}
-        onChangeOpened={setOpenFilters}
-      />
     </>
   );
 };

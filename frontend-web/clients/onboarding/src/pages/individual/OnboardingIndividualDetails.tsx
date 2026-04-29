@@ -13,14 +13,19 @@ import { useFirstMountState } from "@swan-io/lake/src/hooks/useFirstMountState";
 import { filterRejectionsToResult } from "@swan-io/lake/src/utils/gql";
 import { emptyToUndefined } from "@swan-io/lake/src/utils/nullish";
 import { pick } from "@swan-io/lake/src/utils/object";
-import { trim } from "@swan-io/lake/src/utils/string";
 import { TaxIdentificationNumberInput } from "@swan-io/shared-business/src/components/TaxIdentificationNumberInput";
-import { CountryCCA3 } from "@swan-io/shared-business/src/constants/countries";
+import {
+  CountryCCA3,
+  IndividualCountryCCA3,
+} from "@swan-io/shared-business/src/constants/countries";
 import { showToast } from "@swan-io/shared-business/src/state/toasts";
-import { validateIndividualTaxNumber } from "@swan-io/shared-business/src/utils/validation";
+import {
+  validateIndividualTaxNumber,
+  validateRequired,
+} from "@swan-io/shared-business/src/utils/validation";
 import { combineValidators, useForm } from "@swan-io/use-form";
 import { useEffect } from "react";
-import { match } from "ts-pattern";
+import { match, P } from "ts-pattern";
 import { OnboardingFooter } from "../../components/OnboardingFooter";
 import { OnboardingStepContent } from "../../components/OnboardingStepContent";
 import { StepTitle } from "../../components/StepTitle";
@@ -33,11 +38,7 @@ import {
 import { locale, t } from "../../utils/i18n";
 import { Router } from "../../utils/routes";
 import { getUpdateOnboardingError } from "../../utils/templateTranslations";
-import {
-  ServerInvalidFieldCode,
-  getValidationErrorMessage,
-  validateRequired,
-} from "../../utils/validation";
+import { getValidationErrorMessage, ServerInvalidFieldCode } from "../../utils/validation";
 
 const employmentStatuses: Item<EmploymentStatus>[] = [
   { name: t("employmentStatus.craftsman"), value: "Craftsman" },
@@ -87,12 +88,15 @@ export const OnboardingIndividualDetails = ({
   const [updateOnboarding, updateResult] = useMutation(UpdateIndividualOnboardingDocument);
   const isFirstMount = useFirstMountState();
 
-  const canSetTaxIdentification =
-    (accountCountry === "DEU" && country === "DEU") ||
-    (accountCountry === "ESP" && country === "ESP") ||
-    (accountCountry === "ITA" && country === "ITA");
+  const canSetTaxIdentification = match({ accountCountry, country })
+    .with({ accountCountry: P.not(country) }, () => true)
+    .with({ accountCountry: "DEU", country: "DEU" }, () => true)
+    .with({ accountCountry: "ESP", country: "ESP" }, () => true)
+    .with({ accountCountry: "ITA", country: "ITA" }, () => true)
+    .otherwise(() => false);
 
   const isTaxIdentificationRequired = match({ accountCountry, country })
+    .with({ accountCountry: P.not(country) }, () => true)
     .with({ accountCountry: "ITA", country: "ITA" }, () => true)
     .otherwise(() => false);
 
@@ -105,11 +109,11 @@ export const OnboardingIndividualDetails = ({
     },
     taxIdentificationNumber: {
       initialValue: initialTaxIdentificationNumber,
-      sanitize: trim,
+      sanitize: value => value.replace(/[-_. \/]/g, ""),
       validate: canSetTaxIdentification
         ? combineValidators(
             isTaxIdentificationRequired && validateRequired,
-            validateIndividualTaxNumber(accountCountry),
+            validateIndividualTaxNumber(country as IndividualCountryCCA3),
           )
         : undefined,
     },
@@ -169,7 +173,7 @@ export const OnboardingIndividualDetails = ({
         <ResponsiveContainer breakpoint={breakpoints.medium}>
           {({ small }) => (
             <>
-              <StepTitle isMobile={small}>{t("individual.step.details.title")}</StepTitle>
+              <StepTitle>{t("individual.step.details.title")}</StepTitle>
               <Space height={small ? 24 : 32} />
 
               <Tile
@@ -233,7 +237,7 @@ export const OnboardingIndividualDetails = ({
                           valid={valid}
                           onChange={onChange}
                           onBlur={onBlur}
-                          accountCountry={accountCountry}
+                          country={country as IndividualCountryCCA3}
                           isCompany={false}
                           required={isTaxIdentificationRequired}
                         />

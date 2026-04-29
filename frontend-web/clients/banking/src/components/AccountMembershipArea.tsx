@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import { match, P } from "ts-pattern";
 import {
   AccountAreaDocument,
-  LastRelevantIdentificationDocument,
+  LastIdentificationDocument,
   UpdateAccountLanguageDocument,
 } from "../graphql/partner";
 import { PermissionProvider } from "../hooks/usePermissions";
@@ -24,8 +24,8 @@ const COOKIE_REFRESH_INTERVAL = 30000; // 30s
 
 export const AccountMembershipArea = ({ accountMembershipId }: Props) => {
   const [data, { query }] = useDeferredQuery(AccountAreaDocument);
-  const [lastRelevantIdentification, { query: queryLastRelevantIdentification }] = useDeferredQuery(
-    LastRelevantIdentificationDocument,
+  const [lastIdentification, { query: queryLastIdentification }] = useDeferredQuery(
+    LastIdentificationDocument,
   );
 
   const [updateAccountLanguage] = useMutation(UpdateAccountLanguageDocument);
@@ -45,7 +45,7 @@ export const AccountMembershipArea = ({ accountMembershipId }: Props) => {
           Router.replace("ProjectRootRedirect");
         }
 
-        const { account, recommendedIdentificationLevel, legalRepresentative } = accountMembership;
+        const { account, legalRepresentative } = accountMembership;
         const { id: accountId, language, IBAN, bankDetails } = account ?? {};
 
         if (
@@ -62,21 +62,19 @@ export const AccountMembershipArea = ({ accountMembershipId }: Props) => {
           accountMembership.hasRequiredIdentificationLevel ?? undefined;
 
         if (hasRequiredIdentificationLevel === false) {
-          return queryLastRelevantIdentification({
+          return queryLastIdentification({
             accountMembershipId,
-            identificationProcess: recommendedIdentificationLevel,
           });
         }
       });
 
     return () => request.cancel();
-  }, [accountMembershipId, query, queryLastRelevantIdentification, updateAccountLanguage]);
+  }, [accountMembershipId, query, queryLastIdentification, updateAccountLanguage]);
 
   const reload = useCallback(() => {
     query({ accountMembershipId }).tapOk(({ accountMembership }) => {
       const hasRequiredIdentificationLevel =
         accountMembership?.hasRequiredIdentificationLevel ?? undefined;
-      const recommendedIdentificationLevel = accountMembership?.recommendedIdentificationLevel;
 
       const accountId = accountMembership?.account?.id;
       const language = accountMembership?.account?.language;
@@ -88,18 +86,17 @@ export const AccountMembershipArea = ({ accountMembershipId }: Props) => {
       }
 
       if (hasRequiredIdentificationLevel === false) {
-        queryLastRelevantIdentification({
+        queryLastIdentification({
           accountMembershipId,
-          identificationProcess: recommendedIdentificationLevel,
         });
       }
     });
-  }, [accountMembershipId, query, queryLastRelevantIdentification, updateAccountLanguage]);
+  }, [accountMembershipId, query, queryLastIdentification, updateAccountLanguage]);
 
   // Call API to extend cookie TTL
   useEffect(() => {
     const tick = () => {
-      Request.make({ url: "/api/ping", method: "POST", withCredentials: true });
+      Request.make({ url: "/api/ping", method: "POST", credentials: "include", type: "text" });
     };
     const intervalId = setInterval(tick, COOKIE_REFRESH_INTERVAL);
     // Run the ping directly on mount
@@ -111,7 +108,7 @@ export const AccountMembershipArea = ({ accountMembershipId }: Props) => {
     () =>
       data
         .flatMapOk(data =>
-          match(lastRelevantIdentification)
+          match(lastIdentification)
             .with(AsyncData.P.Loading, () => AsyncData.Loading())
             .with(AsyncData.P.Done(Result.P.Error(P.select())), error =>
               AsyncData.Done(Result.Error(error)),
@@ -120,7 +117,7 @@ export const AccountMembershipArea = ({ accountMembershipId }: Props) => {
               AsyncData.Done(
                 Result.Ok({
                   data,
-                  lastRelevantIdentification: lastRelevantIdentification
+                  lastIdentification: lastIdentification
                     .toOption()
                     .flatMap(result => result.toOption())
                     .flatMap(value =>
@@ -132,7 +129,7 @@ export const AccountMembershipArea = ({ accountMembershipId }: Props) => {
               ),
             ),
         )
-        .mapOkToResult(({ data, lastRelevantIdentification }) => {
+        .mapOkToResult(({ data, lastIdentification }) => {
           return match(data)
             .with(
               {
@@ -187,7 +184,7 @@ export const AccountMembershipArea = ({ accountMembershipId }: Props) => {
                   documentCollectionStatus,
                   documentCollectMode,
                   hasTransactions,
-                  identificationStatusInfo: lastRelevantIdentification.map(
+                  identificationStatusInfo: lastIdentification.map(
                     getIdentificationLevelStatusInfo,
                   ),
                   accountHolderType: account?.holder.info.__typename,
@@ -215,57 +212,16 @@ export const AccountMembershipArea = ({ accountMembershipId }: Props) => {
                   )
                   // never show to non-legal rep memberships
                   .with({ isLegalRepresentative: false }, () => "none")
+                  .with({ verificationStatus: "Pending" }, () => "pending")
                   .with(
-                    { identificationStatusInfo: Option.P.Some({ status: "Pending" }) },
-                    () => "pending",
-                  )
-                  .with(
-                    { identificationStatusInfo: Option.P.Some({ status: P.not("Valid") }) },
+                    { verificationStatus: P.union("NotStarted", "WaitingForInformation") },
                     () => "actionRequired",
                   )
                   .with(
                     {
-                      documentCollectionStatus: "PendingReview",
-                      accountHolderType: "AccountHolderCompanyInfo",
-                    },
-                    () => "pending",
-                  )
-                  .with(
-                    {
-                      documentCollectionStatus: P.not("Approved"),
-                      accountHolderType: "AccountHolderCompanyInfo",
-                    },
-                    () => "actionRequired",
-                  )
-                  .with(
-                    {
-                      isIndividual: true,
-                      requireFirstTransfer: false,
-                      account: {
-                        holder: { verificationStatus: P.union("NotStarted", "Pending") },
-                      },
-                    },
-                    {
-                      isIndividual: true,
-                      requireFirstTransfer: false,
-                      documentCollectMode: "API",
-                      account: {
-                        holder: { verificationStatus: P.union("Pending", "WaitingForInformation") },
-                      },
-                    },
-                    () => "pending",
-                  )
-                  .with(
-                    {
-                      isIndividual: true,
-                      requireFirstTransfer: false,
-                      account: { holder: { verificationStatus: "Verified" } },
+                      verificationStatus: "Verified",
                     },
                     () => "none",
-                  )
-                  .with(
-                    { isIndividual: true, requireFirstTransfer: true, hasTransactions: false },
-                    () => "actionRequired",
                   )
                   .otherwise(() => "none");
 
@@ -273,17 +229,15 @@ export const AccountMembershipArea = ({ accountMembershipId }: Props) => {
                   accountMembership,
                   user,
                   projectInfo,
-                  lastRelevantIdentification,
+                  lastIdentification,
                   shouldDisplayIdVerification,
-                  requireFirstTransfer,
-
                   activationTag,
                 });
               },
             )
             .otherwise(() => Result.Error(undefined));
         }),
-    [data, lastRelevantIdentification],
+    [data, lastIdentification],
   );
 
   return match(info)
@@ -296,8 +250,7 @@ export const AccountMembershipArea = ({ accountMembershipId }: Props) => {
         accountMembership,
         projectInfo,
         shouldDisplayIdVerification,
-        requireFirstTransfer,
-        lastRelevantIdentification,
+        lastIdentification,
         activationTag,
       }) => (
         <PermissionProvider
@@ -313,8 +266,7 @@ export const AccountMembershipArea = ({ accountMembershipId }: Props) => {
             accountMembership={accountMembership}
             projectInfo={projectInfo}
             shouldDisplayIdVerification={shouldDisplayIdVerification}
-            lastRelevantIdentification={lastRelevantIdentification}
-            requireFirstTransfer={requireFirstTransfer}
+            lastIdentification={lastIdentification}
             activationTag={activationTag}
             reload={reload}
           />

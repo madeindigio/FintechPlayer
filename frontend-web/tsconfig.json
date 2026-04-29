@@ -1,12 +1,12 @@
 {
-  "include": ["clients", "scripts", "server", "tests"],
+  "include": ["clients", "scripts", "server", "tests", "types"],
   "exclude": ["node_modules"],
   "compilerOptions": {
     "module": "ESNext",
     "target": "ES2019",
     "lib": ["DOM", "DOM.Iterable", "ESNext"],
     "jsx": "react-jsx",
-    "moduleResolution": "Node",
+    "moduleResolution": "bundler",
 
     "allowJs": false,
     "strict": true,
@@ -20,7 +20,9 @@
     "allowSyntheticDefaultImports": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
-    "forceConsistentCasingInFileNames": true,
-    "typeRoots": ["types", "node_modules/@types"]
+    "forceConsistentCasingInFileNames": false,
+
+    // Keep this property (used by local lake development)
+    "paths": {}
   }
 }

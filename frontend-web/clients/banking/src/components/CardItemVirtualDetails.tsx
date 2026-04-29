@@ -1,4 +1,6 @@
 import { useMutation } from "@swan-io/graphql-client";
+import { BorderedIcon } from "@swan-io/lake/src/components/BorderedIcon";
+import { Box } from "@swan-io/lake/src/components/Box";
 import { Fill } from "@swan-io/lake/src/components/Fill";
 import { LakeText } from "@swan-io/lake/src/components/LakeText";
 import { QuickActions } from "@swan-io/lake/src/components/QuickActions";
@@ -14,6 +16,7 @@ import { CardPageQuery, ViewCardNumbersDocument } from "../graphql/partner";
 import { getMemberName } from "../utils/accountMembership";
 import { formatCurrency, t } from "../utils/i18n";
 import { Router } from "../utils/routes";
+import { RemainingSpendingLimit } from "./CardItemSpendingLimit";
 import { MaskedCard } from "./MaskedCard";
 
 const styles = StyleSheet.create({
@@ -89,6 +92,7 @@ export const CardItemVirtualDetails = ({
   };
 
   const textColor = hasBindingUserError ? colors.gray[300] : colors.gray[800];
+  const cardHolderType = card.accountMembership.account?.holder.info.type;
 
   return (
     <View style={styles.container}>
@@ -173,10 +177,7 @@ export const CardItemVirtualDetails = ({
                 Number(spending.amount.value) / Number(spendingLimit.amount.value),
                 1,
               );
-              const remainderToSpend = Math.max(
-                0,
-                Number(spendingLimit.amount.value) - Number(spending.amount.value),
-              );
+
               return (
                 <>
                   <Space height={24} />
@@ -235,28 +236,49 @@ export const CardItemVirtualDetails = ({
 
                     <Space height={8} />
 
-                    <View style={styles.spendingLimitText}>
-                      <LakeText color={textColor} variant="smallRegular">
-                        {match(spendingLimit.period)
-                          .with("Daily", () => t("card.spendingLimit.remaining.daily"))
-                          .with("Weekly", () => t("card.spendingLimit.remaining.weekly"))
-                          .with("Monthly", () => t("card.spendingLimit.remaining.monthly"))
-                          .with("Always", () => t("card.spendingLimit.remaining.always"))
-                          .exhaustive()}
-                      </LakeText>
-
-                      <Fill minWidth={24} />
-
-                      <LakeText color={textColor} variant="smallRegular">
-                        {formatCurrency(remainderToSpend, spending.amount.currency)}
-                      </LakeText>
-                    </View>
+                    <RemainingSpendingLimit
+                      spending={spending}
+                      spendingLimit={spendingLimit}
+                      hasBindingUserError={hasBindingUserError}
+                    />
                   </View>
                 </>
               );
             },
           )
           .otherwise(() => null)}
+
+        <Space height={24} />
+
+        {cardHolderType === "Company" &&
+          match(card.insuranceSubscription)
+            .with(P.nonNullable, ({ package: { level } }) => (
+              <Box alignItems="center" justifyContent="center" direction="row">
+                <BorderedIcon
+                  name="shield-checkmark-regular"
+                  padding={4}
+                  size={24}
+                  color="current"
+                  borderRadius={4}
+                />
+                <Space width={8} />
+
+                {match(level)
+                  .with("Basic", "Standard", () => (
+                    <LakeText>{t("cardDetail.insurance.description.basic")}</LakeText>
+                  ))
+                  .with("Essential", () => (
+                    <LakeText>{t("cardDetail.insurance.description.essential")}</LakeText>
+                  ))
+                  .with("Premium", () => (
+                    <LakeText variant="smallRegular">
+                      {t("cardDetail.insurance.description.premium")}
+                    </LakeText>
+                  ))
+                  .otherwise(() => null)}
+              </Box>
+            ))
+            .otherwise(() => null)}
       </View>
     </View>
   );

@@ -1,15 +1,22 @@
 import { AsyncData, Result } from "@swan-io/boxed";
-import { ClientContext, useDeferredQuery, useMutation } from "@swan-io/graphql-client";
+import { ClientContext, useDeferredQuery, useMutation, useQuery } from "@swan-io/graphql-client";
 import { ErrorBoundary } from "@swan-io/lake/src/components/ErrorBoundary";
 import { LoadingView } from "@swan-io/lake/src/components/LoadingView";
 import { WithPartnerAccentColor } from "@swan-io/lake/src/components/WithPartnerAccentColor";
 import { colors, invariantColors } from "@swan-io/lake/src/constants/design";
 import { ToastStack } from "@swan-io/shared-business/src/components/ToastStack";
 import { useEffect } from "react";
+import { TgglProvider, useTggl } from "react-tggl-client";
 import { P, match } from "ts-pattern";
 import { ErrorView } from "./components/ErrorView";
 import { Redirect } from "./components/Redirect";
 import { SupportingDocumentCollectionFlow } from "./components/SupportingDocumentCollectionFlow";
+import {
+  GetPublicOnboardingDocument,
+  GetPublicOnboardingVersionDocument,
+  UpdatePublicCompanyAccountHolderOnboardingDocument,
+  UpdatePublicIndividualAccountHolderOnboardingDocument,
+} from "./graphql/partner";
 import {
   AccountCountry,
   GetOnboardingDocument,
@@ -18,16 +25,19 @@ import {
 } from "./graphql/unauthenticated";
 import { useTitle } from "./hooks/useTitle";
 import { NotFoundPage } from "./pages/NotFoundPage";
-import { PopupCallbackPage } from "./pages/PopupCallbackPage";
+import { ChangeAdminWizard } from "./pages/changeAdmin/ChangeAdminWizard";
 import { OnboardingCompanyWizard } from "./pages/company/CompanyOnboardingWizard";
 import { OnboardingIndividualWizard } from "./pages/individual/OnboardingIndividualWizard";
+import { OnboardingCompanyWizard as OnboardingCompanyWizardV2 } from "./pages/v2/company/OnboardingCompanyWizard";
+import { OnboardingIndividualWizard as OnboardingIndividualWizardV2 } from "./pages/v2/individual/OnboardingIndividualWizard";
 import { env } from "./utils/env";
-import { client } from "./utils/gql";
+import { client, partnerClient } from "./utils/gql";
 import { locale } from "./utils/i18n";
-import { logFrontendError } from "./utils/logger";
+import { registerOnboardingInfo } from "./utils/logger";
 import { TrackingProvider, useSessionTracking } from "./utils/matomo";
 import { Router } from "./utils/routes";
-import { updateTgglContext } from "./utils/tggl";
+import { tgglClient } from "./utils/tggl";
+import { logFrontendError } from "./utils/tracing";
 
 type Props = {
   onboardingId: string;
@@ -42,11 +52,13 @@ const PageMetadata = ({
   projectName?: string;
   projectId?: string;
 }) => {
-  useEffect(() => {
-    updateTgglContext({ accountCountry });
-  }, [accountCountry]);
+  const { updateContext } = useTggl();
 
-  useTitle("Neom onboarding");
+  useEffect(() => {
+    updateContext({ accountCountry });
+  }, [updateContext, accountCountry]);
+
+  useTitle((projectName ?? "Swan") + " onboarding");
   useSessionTracking(projectId);
 
   return null;
@@ -60,6 +72,28 @@ const FlowPicker = ({ onboardingId }: Props) => {
   const [updateCompanyOnboarding, companyOnboardingUpdate] = useMutation(
     UpdateCompanyOnboardingDocument,
   );
+
+  useEffect(() => {
+    match(data)
+      .with(AsyncData.P.Done(Result.P.Ok(P.select())), ({ onboardingInfo }) => {
+        if (onboardingInfo == null) {
+          return;
+        }
+
+        const projectId = onboardingInfo.projectInfo?.id;
+        const accountCountry = onboardingInfo.accountCountry;
+        const onboardingType = match(onboardingInfo.info.__typename)
+          .returnType<"Company" | "Individual" | undefined>()
+          .with("OnboardingCompanyAccountHolderInfo", () => "Company")
+          .with("OnboardingIndividualAccountHolderInfo", () => "Individual")
+          .exhaustive(() => undefined);
+
+        if (projectId != null && accountCountry != null && onboardingType != null) {
+          registerOnboardingInfo({ accountCountry, projectId, onboardingType });
+        }
+      })
+      .otherwise(() => {});
+  }, [data]);
 
   useEffect(() => {
     const request = query({ id: onboardingId, language: locale.language }).tapOk(
@@ -110,16 +144,12 @@ const FlowPicker = ({ onboardingId }: Props) => {
       const accountHolder = onboardingInfo.info;
 
       // In case of the user returns to an already completed onboarding (back navigator, or a bookmarked one)
-      if (onboardingInfo.onboardingState === "Completed") {
+      if (onboardingInfo.statusInfo.__typename === "OnboardingFinalizedStatusInfo") {
         const oAuthRedirect = onboardingInfo.oAuthRedirectParameters?.redirectUrl?.trim() ?? "";
 
         // By order of priority
         if (oAuthRedirect !== "") {
           return <Redirect to={oAuthRedirect} />;
-        }
-
-        if (onboardingInfo.redirectUrl.trim()) {
-          return <Redirect to={onboardingInfo.redirectUrl.trim()} />;
         }
 
         // Default cases, same behavior as PopupCallbackPage
@@ -164,43 +194,178 @@ const FlowPicker = ({ onboardingId }: Props) => {
     .exhaustive();
 };
 
-export const App = () => {
-  const route = Router.useRoute(["Area", "SupportingDocumentCollectionArea", "PopupCallback"]);
+const FlowPickerV2 = ({ onboardingId }: Props) => {
+  const [data, { query }] = useDeferredQuery(GetPublicOnboardingDocument);
+  const [updateIndividualOnboarding, individualOnboardingUpdate] = useMutation(
+    UpdatePublicIndividualAccountHolderOnboardingDocument,
+  );
+  const [updateCompanyOnboarding, companyOnboardingUpdate] = useMutation(
+    UpdatePublicCompanyAccountHolderOnboardingDocument,
+  );
 
+  useEffect(() => {
+    const request = query({ id: onboardingId, language: locale.language }).tapOk(
+      ({ publicAccountHolderOnboarding }) => {
+        match(publicAccountHolderOnboarding)
+          .with(P.nonNullable, onboarding => {
+            if (onboarding.accountAdmin?.preferredLanguage === locale.language) {
+              return;
+            }
+            return match(onboarding.__typename)
+              .with("CompanyAccountHolderOnboarding", () =>
+                updateCompanyOnboarding({
+                  input: {
+                    onboardingId,
+                    accountAdmin: { preferredLanguage: locale.language },
+                  },
+                  language: locale.language,
+                }),
+              )
+              .with("IndividualAccountHolderOnboarding", () =>
+                updateIndividualOnboarding({
+                  input: {
+                    onboardingId,
+                    accountAdmin: { preferredLanguage: locale.language },
+                  },
+                  language: locale.language,
+                }),
+              )
+              .otherwise(() => {});
+          })
+          .otherwise(() => {});
+
+        return publicAccountHolderOnboarding;
+      },
+    );
+
+    return () => request.cancel();
+  }, [onboardingId, query, updateCompanyOnboarding, updateIndividualOnboarding]);
+
+  return match({ data, companyOnboardingUpdate, individualOnboardingUpdate })
+    .with(
+      { data: P.union(AsyncData.P.NotAsked, AsyncData.P.Loading) },
+      { companyOnboardingUpdate: AsyncData.P.Loading },
+      { individualOnboardingUpdate: AsyncData.P.Loading },
+      () => <LoadingView color={colors.gray[400]} />,
+    )
+    .with({ data: AsyncData.P.Done(Result.P.Error(P.select())) }, error => (
+      <ErrorView error={error} />
+    ))
+    .with({ data: AsyncData.P.Done(Result.P.Ok(P.select())) }, data => {
+      const onboardingInfo = data.publicAccountHolderOnboarding;
+
+      if (onboardingInfo == null) {
+        return <ErrorView />;
+      }
+
+      return match(onboardingInfo)
+        .with(P.nonNullable, onboarding => {
+          const accountCountry = onboarding.accountInfo?.country ?? undefined;
+          const projectInfo = onboarding.projectInfo;
+          const projectColor = projectInfo.accentColor ?? invariantColors.defaultAccentColor;
+
+          return (
+            <>
+              <PageMetadata
+                accountCountry={accountCountry}
+                projectId={projectInfo.id}
+                projectName={projectInfo.name}
+              />
+              <WithPartnerAccentColor color={projectColor}>
+                {match(onboarding)
+                  .with({ __typename: "CompanyAccountHolderOnboarding" }, companyOnboarding => (
+                    <OnboardingCompanyWizardV2 onboarding={companyOnboarding} />
+                  ))
+                  .with(
+                    { __typename: "IndividualAccountHolderOnboarding" },
+                    individualOnboarding => (
+                      <OnboardingIndividualWizardV2 onboarding={individualOnboarding} />
+                    ),
+                  )
+                  .exhaustive()}
+              </WithPartnerAccentColor>
+            </>
+          );
+        })
+        .otherwise(() => <ErrorView />);
+    })
+    .exhaustive();
+};
+
+const FlowPickerWizard = ({ onboardingId }: Props) => {
+  const [data] = useQuery(GetPublicOnboardingVersionDocument, { id: onboardingId });
+
+  const FlowPickerV1 = () => (
+    <ClientContext.Provider value={client}>
+      <FlowPicker onboardingId={onboardingId} />
+    </ClientContext.Provider>
+  );
+
+  return match(data)
+    .with(AsyncData.P.NotAsked, AsyncData.P.Loading, () => <LoadingView color={colors.gray[400]} />)
+    .with(AsyncData.P.Done(Result.P.Error(P.select())), () => {
+      // Temporary fallback while the Onboarding V2 is still in development
+      return <FlowPickerV1 />;
+    })
+    .with(AsyncData.P.Done(Result.P.Ok(P.select())), ({ publicAccountHolderOnboarding }) => {
+      return match(publicAccountHolderOnboarding)
+        .with(P.nonNullable, onboarding => {
+          return match(onboarding.statusInfo)
+            .with({ __typename: "OnboardingFinalizedStatusInfo" }, () => {
+              return <Redirect to={`${env.BANKING_URL}?source=onboarding`} />;
+            })
+            .with({ validationVersion: "V2" }, () => {
+              return <FlowPickerV2 onboardingId={onboardingId} />;
+            })
+            .otherwise(() => {
+              return <FlowPickerV1 />;
+            });
+        })
+        .otherwise(() => <FlowPickerV1 />);
+    })
+    .exhaustive();
+};
+
+export const Routing = () => {
+  const route = Router.useRoute(["Area", "SupportingDocumentCollectionArea", "ChangeAdminArea"]);
   return (
     <ErrorBoundary
       key={route?.name}
       onError={error => logFrontendError(error)}
       fallback={() => <ErrorView />}
     >
-      <ClientContext.Provider value={client}>
-        {match(route)
-          .with(
-            { name: "PopupCallback" },
-            ({ params: { redirectUrl, accountMembershipId, projectId } }) => (
-              <PopupCallbackPage
-                redirectUrl={redirectUrl}
-                accountMembershipId={accountMembershipId}
-                projectId={projectId}
-              />
-            ),
-          )
-          .with(
-            { name: "SupportingDocumentCollectionArea" },
-            ({ params: { supportingDocumentCollectionId } }) => (
+      {match(route)
+        .with(
+          { name: "SupportingDocumentCollectionArea" },
+          ({ params: { supportingDocumentCollectionId } }) => (
+            <ClientContext.Provider value={client}>
               <SupportingDocumentCollectionFlow
                 supportingDocumentCollectionId={supportingDocumentCollectionId}
               />
-            ),
-          )
-          .with({ name: "Area" }, ({ params: { onboardingId } }) => (
-            <FlowPicker onboardingId={onboardingId} />
-          ))
-          .with(P.nullish, () => <NotFoundPage />)
-          .exhaustive()}
-      </ClientContext.Provider>
-
-      <ToastStack />
+            </ClientContext.Provider>
+          ),
+        )
+        .with({ name: "ChangeAdminArea" }, ({ params: { requestId } }) => (
+          <ClientContext.Provider value={partnerClient}>
+            <ChangeAdminWizard changeAdminRequestId={requestId} />
+          </ClientContext.Provider>
+        ))
+        .with({ name: "Area" }, ({ params: { onboardingId } }) => (
+          <ClientContext.Provider value={partnerClient}>
+            <FlowPickerWizard onboardingId={onboardingId} />
+          </ClientContext.Provider>
+        ))
+        .with(P.nullish, () => <NotFoundPage />)
+        .exhaustive()}
     </ErrorBoundary>
+  );
+};
+
+export const App = () => {
+  return (
+    <TgglProvider client={tgglClient}>
+      <Routing />
+      <ToastStack />
+    </TgglProvider>
   );
 };

@@ -43,9 +43,9 @@ import {
   ServerInvalidFieldCode,
   extractServerValidationErrors,
   getValidationErrorMessage,
-  validateEmail,
-  validateRequired,
 } from "../../utils/validation";
+
+import { validateEmail, validateRequired } from "@swan-io/shared-business/src/utils/validation";
 
 // exclude USA from country list because we can't open account for American citizens
 // https://support.swan.io/hc/en-150/articles/5767279299741
@@ -87,6 +87,7 @@ type Props = {
   }[];
   tcuDocumentUri?: string;
   tcuUrl: string;
+  forcedUpdateInputs: Partial<UnauthenticatedUpdateCompanyOnboardingInput>;
 };
 
 export const OnboardingCompanyRegistration = ({
@@ -103,13 +104,14 @@ export const OnboardingCompanyRegistration = ({
   serverValidationErrors,
   tcuDocumentUri,
   tcuUrl,
+  forcedUpdateInputs,
 }: Props) => {
   const [updateOnboarding, updateResult] = useMutation(UpdateCompanyOnboardingDocument);
   const isFirstMount = useFirstMountState();
 
   const haveToAcceptTcu = accountCountry === "DEU" || accountCountry === "ITA";
   const isAddressRequired = match(accountCountry)
-    .with("DEU", "NLD", () => true)
+    .with("DEU", "NLD", "BEL", () => true)
     .otherwise(() => false);
 
   const { Field, submitForm, setFieldValue, setFieldError, FieldsListener } = useForm({
@@ -196,7 +198,7 @@ export const OnboardingCompanyRegistration = ({
             };
 
         updateOnboarding({
-          input: updateInput,
+          input: { ...forcedUpdateInputs, ...updateInput },
           language: locale.language,
         })
           .mapOk(data => data.unauthenticatedUpdateCompanyOnboarding)
@@ -252,7 +254,7 @@ export const OnboardingCompanyRegistration = ({
         <ResponsiveContainer breakpoint={breakpoints.medium}>
           {({ small }) => (
             <>
-              <StepTitle isMobile={small}>{t("company.step.registration.title")}</StepTitle>
+              <StepTitle>{t("company.step.registration.title")}</StepTitle>
               <Space height={small ? 8 : 12} />
               <LakeText>{t("company.step.registration.description")}</LakeText>
               <Space height={small ? 24 : 32} />
@@ -282,9 +284,7 @@ export const OnboardingCompanyRegistration = ({
 
               {isAddressRequired && (
                 <>
-                  <StepTitle isMobile={small}>
-                    {t("company.step.registration.locationTitle")}
-                  </StepTitle>
+                  <StepTitle>{t("company.step.registration.locationTitle")}</StepTitle>
 
                   <Space height={small ? 24 : 32} />
 
@@ -318,7 +318,7 @@ export const OnboardingCompanyRegistration = ({
                                   <PlacekitAddressSearchInput
                                     inputRef={ref}
                                     apiKey={__env.CLIENT_PLACEKIT_API_KEY}
-                                    emptyResultText={t("common.noResult")}
+                                    emptyResult={t("common.noResult")}
                                     placeholder={t(
                                       "company.step.registration.searchAddressPlaceholder",
                                     )}

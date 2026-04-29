@@ -1,6 +1,7 @@
 import { useMutation } from "@swan-io/graphql-client";
 import { LakeHeading } from "@swan-io/lake/src/components/LakeHeading";
 import { Space } from "@swan-io/lake/src/components/Space";
+import { TabView } from "@swan-io/lake/src/components/TabView";
 import { identity } from "@swan-io/lake/src/utils/function";
 import { filterRejectionsToResult } from "@swan-io/lake/src/utils/gql";
 import { isNotNullishOrEmpty } from "@swan-io/lake/src/utils/nullish";
@@ -8,7 +9,7 @@ import { showToast } from "@swan-io/shared-business/src/state/toasts";
 import { translateError } from "@swan-io/shared-business/src/utils/i18n";
 import { useState } from "react";
 import { P, match } from "ts-pattern";
-import { AccountCountry, ScheduleStandingOrderDocument } from "../graphql/partner";
+import { ScheduleStandingOrderDocument } from "../graphql/partner";
 import { usePermissions } from "../hooks/usePermissions";
 import { encodeDateTime } from "../utils/date";
 import { t } from "../utils/i18n";
@@ -18,6 +19,7 @@ import {
   SepaBeneficiary,
   TransferWizardBeneficiarySummary,
 } from "./BeneficiarySepaWizardForm";
+import { SavedBeneficiariesForm } from "./SavedBeneficiariesForm";
 import {
   Details,
   TransferRecurringWizardDetails,
@@ -44,14 +46,75 @@ type Step =
 
 type Props = {
   onPressClose?: () => void;
-  accountCountry: AccountCountry;
   accountId: string;
   accountMembershipId: string;
 };
 
+const BeneficiaryStep = ({
+  accountId,
+  initialBeneficiary,
+  onPressSubmit,
+}: {
+  accountId: string;
+  initialBeneficiary: SepaBeneficiary | undefined;
+  onPressSubmit: (beneficiary: SepaBeneficiary) => void;
+}) => {
+  const { canInitiateCreditTransferToNewBeneficiary } = usePermissions();
+
+  const [activeTab, setActiveTab] = useState(
+    canInitiateCreditTransferToNewBeneficiary ? (initialBeneficiary?.kind ?? "new") : "saved",
+  );
+
+  const tabs: { id: SepaBeneficiary["kind"]; label: string }[] = [
+    ...(canInitiateCreditTransferToNewBeneficiary
+      ? [{ id: "new" as const, label: t("transfer.new.beneficiary.new") }]
+      : []),
+    { id: "saved" as const, label: t("transfer.new.beneficiary.saved") },
+  ];
+
+  return (
+    <>
+      <LakeHeading level={2} variant="h3">
+        {t("transfer.new.beneficiary.title")}
+      </LakeHeading>
+
+      {tabs.length > 1 && (
+        <>
+          <Space height={24} />
+
+          <TabView
+            activeTabId={activeTab}
+            tabs={tabs}
+            onChange={tab => setActiveTab(tab as SepaBeneficiary["kind"])}
+            otherLabel={t("common.tabs.other")}
+          />
+        </>
+      )}
+
+      <Space height={32} />
+
+      {match(activeTab)
+        .with("new", () => (
+          <BeneficiarySepaWizardForm
+            mode="continue"
+            saveCheckboxVisible={false}
+            onPressSubmit={onPressSubmit}
+            initialBeneficiary={match(initialBeneficiary)
+              .with({ kind: "new" }, identity)
+              .with({ kind: "saved" }, P.nullish, () => undefined)
+              .exhaustive()}
+          />
+        ))
+        .with("saved", () => (
+          <SavedBeneficiariesForm type="Sepa" accountId={accountId} onPressSubmit={onPressSubmit} />
+        ))
+        .exhaustive()}
+    </>
+  );
+};
+
 export const TransferRecurringWizard = ({
   onPressClose,
-  accountCountry,
   accountId,
   accountMembershipId,
 }: Props) => {
@@ -97,7 +160,6 @@ export const TransferRecurringWizard = ({
           name: beneficiary.name,
           save: false,
           iban: beneficiary.iban,
-          isMyOwnIban: false, // TODO
         },
         label: details.label,
         reference: details.reference,
@@ -144,25 +206,11 @@ export const TransferRecurringWizard = ({
       {({ large }) =>
         match(step)
           .with({ name: "Beneficiary" }, ({ beneficiary }) => (
-            <>
-              <LakeHeading level={2} variant="h3">
-                {t("transfer.new.beneficiary.title")}
-              </LakeHeading>
-
-              <Space height={32} />
-
-              <BeneficiarySepaWizardForm
-                mode="continue"
-                accountCountry={accountCountry}
-                accountId={accountId}
-                saveCheckboxVisible={false}
-                onPressSubmit={beneficiary => setStep({ name: "Details", beneficiary })}
-                initialBeneficiary={match(beneficiary)
-                  .with({ kind: "new" }, identity)
-                  .with({ kind: "saved" }, P.nullish, () => undefined)
-                  .exhaustive()}
-              />
-            </>
+            <BeneficiaryStep
+              accountId={accountId}
+              initialBeneficiary={beneficiary}
+              onPressSubmit={beneficiary => setStep({ name: "Details", beneficiary })}
+            />
           ))
           .with({ name: "Details" }, ({ beneficiary, details }) => (
             <>

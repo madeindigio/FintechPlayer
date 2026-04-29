@@ -38,6 +38,7 @@ import {
   AccountCountry,
   IndividualUltimateBeneficialOwnerInput,
   UboFragment,
+  UnauthenticatedUpdateCompanyOnboardingInput,
   UpdateCompanyOnboardingDocument,
 } from "../../graphql/unauthenticated";
 import { TranslationKey, locale, t } from "../../utils/i18n";
@@ -106,6 +107,7 @@ type Props = {
   country: CountryCCA3;
   companyName: string;
   ubos: UboFragment[];
+  forcedUpdateInputs: Partial<UnauthenticatedUpdateCompanyOnboardingInput>;
 };
 
 type LocalStateUbo = SaveValue & {
@@ -340,6 +342,7 @@ export const OnboardingCompanyOwnership = ({
   country,
   companyName,
   ubos,
+  forcedUpdateInputs,
 }: Props) => {
   const [updateOnboarding, updateResult] = useMutation(UpdateCompanyOnboardingDocument);
 
@@ -388,7 +391,7 @@ export const OnboardingCompanyOwnership = ({
 
   const addUbo = (newUbo: SaveValue) => {
     // errors is empty because beneficiaries form already validates the ubo
-    updateOnboardingUbos([...currentUbos, { ...newUbo, errors: {} }]).tap(() => {
+    updateOnboardingUbos([...currentUbos, { ...newUbo, errors: {} }]).tapOk(() => {
       resetPageState();
     });
   };
@@ -399,7 +402,7 @@ export const OnboardingCompanyOwnership = ({
       currentUbos.map(item =>
         item[REFERENCE_SYMBOL] === ubo[REFERENCE_SYMBOL] ? { ...ubo, errors: {} } : item,
       ),
-    ).tap(() => {
+    ).tapOk(() => {
       resetPageState();
     });
   };
@@ -420,7 +423,7 @@ export const OnboardingCompanyOwnership = ({
 
     updateOnboardingUbos(
       currentUbos.filter(item => item[REFERENCE_SYMBOL] !== pageState.reference),
-    ).tap(() => {
+    ).tapOk(() => {
       resetPageState();
     });
   };
@@ -513,6 +516,7 @@ export const OnboardingCompanyOwnership = ({
     return updateOnboarding({
       input: {
         onboardingId,
+        ...forcedUpdateInputs,
         individualUltimateBeneficialOwners,
       },
       language: locale.language,
@@ -550,7 +554,7 @@ export const OnboardingCompanyOwnership = ({
           {({ small }) =>
             currentUbos.length === 0 ? (
               <Box>
-                <StepTitle isMobile={small}>{t("company.step.owners.title")}</StepTitle>
+                <StepTitle>{t("company.step.owners.title")}</StepTitle>
                 <Space height={12} />
                 <LakeText>{t("company.step.owners.description", { companyName })}</LakeText>
                 <Space height={24} />
@@ -569,7 +573,7 @@ export const OnboardingCompanyOwnership = ({
               </Box>
             ) : (
               <Box>
-                <StepTitle isMobile={small}>{t("company.step.owners.title")}</StepTitle>
+                <StepTitle>{t("company.step.owners.title")}</StepTitle>
                 <Space height={12} />
                 <LakeText>{t("company.step.owners.description", { companyName })}</LakeText>
                 <Space height={24} />

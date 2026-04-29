@@ -9,7 +9,6 @@ import { Space } from "@swan-io/lake/src/components/Space";
 import { backgroundColor } from "@swan-io/lake/src/constants/design";
 import { identity } from "@swan-io/lake/src/utils/function";
 import { filterRejectionsToResult } from "@swan-io/lake/src/utils/gql";
-import { nullishOrEmptyToUndefined } from "@swan-io/lake/src/utils/nullish";
 import { pick } from "@swan-io/lake/src/utils/object";
 import { trim } from "@swan-io/lake/src/utils/string";
 import { Request, badStatusToError } from "@swan-io/request";
@@ -17,35 +16,44 @@ import { BirthdatePicker } from "@swan-io/shared-business/src/components/Birthda
 import { CountryPicker } from "@swan-io/shared-business/src/components/CountryPicker";
 import { PlacekitAddressSearchInput } from "@swan-io/shared-business/src/components/PlacekitAddressSearchInput";
 import { TaxIdentificationNumberInput } from "@swan-io/shared-business/src/components/TaxIdentificationNumberInput";
-import { CountryCCA3, allCountries } from "@swan-io/shared-business/src/constants/countries";
+import {
+  CountryCCA3,
+  allCountries,
+  getCountryByCCA3,
+} from "@swan-io/shared-business/src/constants/countries";
 import { showToast } from "@swan-io/shared-business/src/state/toasts";
 import { translateError } from "@swan-io/shared-business/src/utils/i18n";
-import { validateIndividualTaxNumber } from "@swan-io/shared-business/src/utils/validation";
+import {
+  validateEmail,
+  validateIndividualTaxNumber,
+  validateName,
+  validateRequired,
+} from "@swan-io/shared-business/src/utils/validation";
 import { combineValidators, useForm } from "@swan-io/use-form";
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
+import { useFlag } from "react-tggl-client";
 import { P, match } from "ts-pattern";
 import {
   AccountLanguage,
   AccountMembershipFragment,
   ResumeAccountMembershipDocument,
+  SendAccountMembershipInviteNotificationDocument,
   SuspendAccountMembershipDocument,
   UpdateAccountMembershipDocument,
 } from "../graphql/partner";
 import { usePermissions } from "../hooks/usePermissions";
 import { accountLanguages, locale, t } from "../utils/i18n";
+import { parsePhoneNumber, prefixPhoneNumber } from "../utils/phone";
 import { projectConfiguration } from "../utils/projectId";
 import { Router } from "../utils/routes";
-import { validateAddressLine, validateName, validateRequired } from "../utils/validations";
+import { validateAddressLine } from "../utils/validations";
+import { InputPhoneNumber } from "./InputPhoneNumber";
 import { MembershipCancelConfirmationModal } from "./MembershipCancelConfirmationModal";
 import { MembershipInvitationLinkModal } from "./MembershipInvitationLinkModal";
 
 const styles = StyleSheet.create({
-  buttonGroup: {
-    backgroundColor: backgroundColor.default,
-    position: "sticky",
-    bottom: 0,
-  },
+  buttonGroup: { backgroundColor: backgroundColor.default, position: "sticky", bottom: 0 },
 });
 
 type AllowedStatuses =
@@ -81,11 +89,16 @@ export const MembershipDetailEditor = ({
 }: Props) => {
   const { canUpdateAccountMembership } = usePermissions();
   const [isCancelConfirmationModalOpen, setIsCancelConfirmationModalOpen] = useState(false);
+  const canUseNotificationStack = useFlag("useNotificationStackToSendNewMembershipEmail", false);
 
   const [updateMembership, membershipUpdate] = useMutation(UpdateAccountMembershipDocument);
   const [suspendMembership, membershipSuspension] = useMutation(SuspendAccountMembershipDocument);
   const [unsuspendMembership, membershipUnsuspension] = useMutation(
     ResumeAccountMembershipDocument,
+  );
+
+  const [sendAccountMembershipInviteNotification] = useMutation(
+    SendAccountMembershipInviteNotificationDocument,
   );
 
   const isEditingCurrentUserAccountMembership =
@@ -95,7 +108,7 @@ export const MembershipDetailEditor = ({
     email: {
       initialValue: editingAccountMembership.email,
       sanitize: trim,
-      validate: validateRequired,
+      validate: combineValidators(validateRequired, validateEmail),
     },
     lastName: {
       initialValue: match(editingAccountMembership)
@@ -169,18 +182,40 @@ export const MembershipDetailEditor = ({
               restrictedTo: { phoneNumber: P.string },
             },
           },
-          ({ statusInfo }) => statusInfo.restrictedTo.phoneNumber,
+          ({ statusInfo }) => parsePhoneNumber(statusInfo.restrictedTo.phoneNumber),
         )
-        .with({ user: { mobilePhoneNumber: P.string } }, ({ user }) => user.mobilePhoneNumber)
-        .otherwise(() => ""),
-      sanitize: trim,
-      validate: value => {
+        .with({ user: { mobilePhoneNumber: P.string } }, ({ user }) =>
+          parsePhoneNumber(user.mobilePhoneNumber),
+        )
+        .otherwise(() => ({
+          country: getCountryByCCA3(accountCountry),
+          nationalNumber: "",
+        })),
+      sanitize: ({ country, nationalNumber }) => ({
+        country,
+        nationalNumber: nationalNumber.trim(),
+      }),
+      strategy: "onBlur",
+      validate: ({ country, nationalNumber }) => {
         if (
           editingAccountMembership.canInitiatePayments ||
           editingAccountMembership.canManageAccountMembership ||
           editingAccountMembership.canManageBeneficiaries
         ) {
-          return validateRequired(value);
+          if (nationalNumber.trim() === "") {
+            return t("common.form.required.permissions");
+          }
+          const phoneNumber = prefixPhoneNumber(country, nationalNumber);
+
+          if (!phoneNumber.valid) {
+            return t("common.form.invalidPhoneNumber");
+          }
+        }
+        if (nationalNumber.trim() !== "") {
+          const phoneNumber = prefixPhoneNumber(country, nationalNumber);
+          if (!phoneNumber.valid) {
+            return t("common.form.invalidPhoneNumber");
+          }
         }
       },
     },
@@ -210,7 +245,7 @@ export const MembershipDetailEditor = ({
     taxIdentificationNumber: {
       initialValue: editingAccountMembership.taxIdentificationNumber ?? "",
       strategy: "onBlur",
-      sanitize: trim,
+      sanitize: value => value.replace(/[-_. \/]/g, ""),
       validate: (value, { getFieldValue }) => {
         return match({
           accountCountry,
@@ -253,12 +288,24 @@ export const MembershipDetailEditor = ({
             restrictedTo: match({
               editingAccountMembership,
               isEditingCurrentUser: currentUserAccountMembership.id === editingAccountMembership.id,
-              values: Option.allFromDict(pick(values, ["firstName", "lastName", "birthDate"])).map(
-                mandatoryValues => ({
-                  ...mandatoryValues,
-                  phoneNumber: nullishOrEmptyToUndefined(values.phoneNumber.toUndefined()),
-                }),
-              ),
+              values: Option.allFromDict(
+                pick(values, ["firstName", "lastName", "birthDate", "phoneNumber"]),
+              ).map(mandatoryValues => ({
+                ...mandatoryValues,
+                phoneNumber: Option.fromNullable(mandatoryValues.phoneNumber.nationalNumber)
+                  .flatMap(nationalNumber => {
+                    const value = nationalNumber.trim();
+                    return value === "" ? Option.None() : Option.Some(value);
+                  })
+                  .flatMap(nationalNumber => {
+                    const phoneNumber = prefixPhoneNumber(
+                      mandatoryValues.phoneNumber.country,
+                      nationalNumber,
+                    );
+                    return phoneNumber.valid ? Option.Some(phoneNumber.e164) : Option.None();
+                  })
+                  .toNull(),
+              })),
             })
               .with(
                 {
@@ -308,11 +355,7 @@ export const MembershipDetailEditor = ({
   };
 
   const onPressSuspend = () => {
-    suspendMembership({
-      input: {
-        accountMembershipId: editingAccountMembershipId,
-      },
-    })
+    suspendMembership({ input: { accountMembershipId: editingAccountMembershipId } })
       .mapOk(data => data.suspendAccountMembership)
       .mapOkToResult(filterRejectionsToResult)
       .tapOk(() => {
@@ -350,46 +393,63 @@ export const MembershipDetailEditor = ({
   >(AsyncData.NotAsked());
 
   const sendInvitation = () => {
-    setInvitationSending(AsyncData.Loading());
-
-    const query = new URLSearchParams();
-
-    query.append("inviterAccountMembershipId", currentUserAccountMembershipId);
-    query.append("lang", getFieldValue("language"));
-
-    const url = match(projectConfiguration)
-      .with(
-        Option.P.Some({ projectId: P.select(), mode: "MultiProject" }),
-        projectId =>
-          `/api/projects/${projectId}/invitation/${editingAccountMembershipId}/send?${query.toString()}`,
-      )
-      .otherwise(() => `/api/invitation/${editingAccountMembershipId}/send?${query.toString()}`);
-
-    const request = Request.make({
-      url,
-      method: "POST",
-      withCredentials: true,
-      responseType: "json",
-      body: JSON.stringify({
-        inviteeAccountMembershipId: editingAccountMembershipId,
-        inviterAccountMembershipId: currentUserAccountMembershipId,
-      }),
-    })
-      .mapOkToResult(badStatusToError)
-      .mapOk(() => undefined)
-      .mapError(() => undefined);
-
-    request
-      .tapError(error => {
-        showToast({ variant: "error", error, title: t("error.generic") });
+    if (canUseNotificationStack) {
+      sendAccountMembershipInviteNotification({
+        input: { accountMembershipId: editingAccountMembershipId },
       })
-      .onResolve(value => {
-        showToast({
-          variant: "success",
-          title: t("membershipDetail.resendInvitationSuccessToast"),
+        .mapOk(data => data.sendAccountMembershipInviteNotification)
+        .mapOkToResult(filterRejectionsToResult)
+        .tapOk(() => {
+          showToast({
+            variant: "success",
+            title: t("membershipDetail.resendInvitationSuccessToast"),
+          });
+        })
+        .tapError(error => {
+          showToast({ variant: "error", error, title: translateError(error) });
         });
-        setInvitationSending(AsyncData.Done(value));
-      });
+    } else {
+      setInvitationSending(AsyncData.Loading());
+
+      const query = new URLSearchParams();
+
+      query.append("inviterAccountMembershipId", currentUserAccountMembershipId);
+      query.append("lang", getFieldValue("language"));
+
+      const url = match(projectConfiguration)
+        .with(
+          Option.P.Some({ projectId: P.select(), mode: "MultiProject" }),
+          projectId =>
+            `/api/projects/${projectId}/invitation/${editingAccountMembershipId}/send?${query.toString()}`,
+        )
+        .otherwise(() => `/api/invitation/${editingAccountMembershipId}/send?${query.toString()}`);
+
+      const request = Request.make({
+        url,
+        method: "POST",
+        credentials: "include",
+        type: "json",
+        body: JSON.stringify({
+          inviteeAccountMembershipId: editingAccountMembershipId,
+          inviterAccountMembershipId: currentUserAccountMembershipId,
+        }),
+      })
+        .mapOkToResult(badStatusToError)
+        .mapOk(() => undefined)
+        .mapError(() => undefined);
+
+      request
+        .tapError(error => {
+          showToast({ variant: "error", error, title: t("error.generic") });
+        })
+        .onResolve(value => {
+          showToast({
+            variant: "success",
+            title: t("membershipDetail.resendInvitationSuccessToast"),
+          });
+          setInvitationSending(AsyncData.Done(value));
+        });
+    }
   };
 
   return (
@@ -618,22 +678,15 @@ export const MembershipDetailEditor = ({
               </Field>
 
               <Field name="phoneNumber">
-                {({ value, valid, error, onChange, ref }) => (
-                  <LakeLabel
+                {({ value, valid, error, onChange, ref, onBlur }) => (
+                  <InputPhoneNumber
                     label={t("membershipDetail.edit.phoneNumber")}
-                    render={id => (
-                      <LakeTextInput
-                        id={id}
-                        ref={ref}
-                        placeholder="+33600000000"
-                        value={value ?? ""}
-                        valid={valid}
-                        error={error}
-                        readOnly={!canUpdateAccountMembership}
-                        onChangeText={onChange}
-                        inputMode="tel"
-                      />
-                    )}
+                    ref={ref}
+                    onValueChange={onChange}
+                    error={error}
+                    value={value}
+                    valid={valid}
+                    onBlur={onBlur}
                   />
                 )}
               </Field>
@@ -706,7 +759,7 @@ export const MembershipDetailEditor = ({
                             }}
                             language={locale.language}
                             placeholder={t("addressInput.placeholder")}
-                            emptyResultText={t("common.noResults")}
+                            emptyResult={t("common.noResults")}
                             error={error}
                             id={id}
                           />
@@ -762,12 +815,13 @@ export const MembershipDetailEditor = ({
                   .with(
                     { accountCountry: "DEU", country: "DEU" },
                     { accountCountry: "ITA", country: "ITA" },
+                    { accountCountry: "BEL", country: "BEL" },
                     ({ accountCountry, country }) => (
                       <Field name="taxIdentificationNumber">
                         {({ value, valid, error, onChange, ref }) => (
                           <TaxIdentificationNumberInput
                             ref={ref}
-                            accountCountry={accountCountry}
+                            country={accountCountry}
                             isCompany={false}
                             value={value}
                             valid={valid}
@@ -786,6 +840,7 @@ export const MembershipDetailEditor = ({
                                   P.union({ canViewAccount: true }, { canInitiatePayment: true }),
                                 ),
                                 { accountCountry: "ITA", country: "ITA", canInitiatePayment: true },
+                                { accountCountry: "BEL", country: "BEL", canInitiatePayment: true },
                                 () => true,
                               )
                               .otherwise(() => false)}
@@ -836,9 +891,7 @@ export const MembershipDetailEditor = ({
               .with(
                 {
                   editingAccountMembership: {
-                    statusInfo: {
-                      __typename: "AccountMembershipEnabledStatusInfo",
-                    },
+                    statusInfo: { __typename: "AccountMembershipEnabledStatusInfo" },
                   },
                 },
                 () => (
@@ -879,9 +932,7 @@ export const MembershipDetailEditor = ({
                 // Can't remove yourself
                 { isEditingCurrentUserAccountMembership: true },
                 // Can't remove the account legal representative
-                {
-                  editingAccountMembership: { legalRepresentative: true },
-                },
+                { editingAccountMembership: { legalRepresentative: true } },
                 () => null,
               )
               .otherwise(() => (

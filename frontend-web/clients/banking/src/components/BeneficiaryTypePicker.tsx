@@ -6,9 +6,9 @@ import { commonStyles } from "@swan-io/lake/src/constants/commonStyles";
 import { breakpoints, spacings } from "@swan-io/lake/src/constants/design";
 import { useCallback, useMemo } from "react";
 import { StyleSheet, View } from "react-native";
-import { AccountCountry } from "../graphql/partner";
+import { useFlag } from "react-tggl-client";
 import { t } from "../utils/i18n";
-import { GetRouteParams, Router } from "../utils/routes";
+import { RouteParams, Router } from "../utils/routes";
 import { BeneficiaryInternationalWizard } from "./BeneficiaryInternationalWizard";
 import { BeneficiarySepaWizard } from "./BeneficiarySepaWizard";
 import { TypePickerLink } from "./TypePickerLink";
@@ -39,16 +39,12 @@ const styles = StyleSheet.create({
 type Props = {
   accountMembershipId: string;
   accountId: string;
-  accountCountry: AccountCountry;
-  params: GetRouteParams<"AccountPaymentsBeneficiariesNew">;
+  params: RouteParams<"AccountPaymentsBeneficiariesNew">;
 };
 
-export const BeneficiaryTypePicker = ({
-  accountMembershipId,
-  accountId,
-  accountCountry,
-  params,
-}: Props) => {
+export const BeneficiaryTypePicker = ({ accountMembershipId, accountId, params }: Props) => {
+  const ictEnabled = useFlag("initiate_international_credit_transfer_outgoing", false);
+
   useCrumb(
     useMemo(
       () => ({
@@ -67,14 +63,21 @@ export const BeneficiaryTypePicker = ({
         title: t("beneficiaries.wizards.picker.sepa.title"),
         subtitle: t("beneficiaries.wizards.picker.sepa.subtitle"),
       },
-      {
-        url: Router.AccountPaymentsBeneficiariesNew({ accountMembershipId, type: "international" }),
-        icon: "earth-regular" as const,
-        title: t("beneficiaries.wizards.picker.international.title"),
-        subtitle: t("beneficiaries.wizards.picker.international.subtitle"),
-      },
+      ...(ictEnabled
+        ? [
+            {
+              url: Router.AccountPaymentsBeneficiariesNew({
+                accountMembershipId,
+                type: "international",
+              }),
+              icon: "earth-regular" as const,
+              title: t("beneficiaries.wizards.picker.international.title"),
+              subtitle: t("beneficiaries.wizards.picker.international.subtitle"),
+            },
+          ]
+        : []),
     ],
-    [accountMembershipId],
+    [accountMembershipId, ictEnabled],
   );
 
   const handleOnPressClose = useCallback(() => {
@@ -110,7 +113,6 @@ export const BeneficiaryTypePicker = ({
 
       <FullViewportLayer visible={params.type === "sepa"}>
         <BeneficiarySepaWizard
-          accountCountry={accountCountry}
           accountId={accountId}
           accountMembershipId={accountMembershipId}
           onPressClose={handleOnPressClose}

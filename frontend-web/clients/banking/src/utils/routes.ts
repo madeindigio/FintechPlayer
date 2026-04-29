@@ -4,23 +4,48 @@ import { P, match } from "ts-pattern";
 import { projectConfiguration } from "./projectId";
 
 const routes = {
-  PopupCallback: "/swanpopupcallback?:redirectTo",
-
   ProjectLogin: "/login?:sessionExpired&:redirectTo",
   ProjectRootRedirect: "/?:to&:source",
 
+  AddReceivedSepaDirectDebitB2bMandate:
+    "/add-received-sepa-direct-debit-b2b-mandate/:accountId?:resourceId&:status",
   AccountClose: "/accounts/:accountId/close?:resourceId&:status",
+  CreditLimitRequest: "/accounts/:accountId/request-credit-limit?:from&:requestAgain{true}",
+
+  ...createGroup("VerificationRenewal", "/verification-renewal/:verificationRenewalId", {
+    Area: "/*",
+    Root: "/",
+    PersonalInformation: "/personal-information",
+    AdministratorInformation: "/administrator-information",
+    AccountHolderInformation: "/account-holder-information",
+    Ownership: "/ownership",
+    Documents: "/documents",
+    Finalize: "finalize",
+  }),
 
   ...createGroup("Account", "/:accountMembershipId", {
     Area: "/*",
     Root: "/",
     Profile: "/profile",
-    Activation: "/activation",
+    ...createGroup("Activation", "/activation", {
+      Area: "/*",
+      Root: "/",
+      AdditionalInfos: "/additionnal-informations",
+      SupportingDocs: "/supporting-documents",
+      FirstTransfer: "/first-transfer",
+      Identification: "/identification",
+    }),
 
     ...createGroup("Details", "/details", {
       Area: "/*",
       Iban: "/iban",
       VirtualIbans: "/virtual-ibans",
+      ...createGroup("CreditLimit", "/credit-limit", {
+        Area: "/*",
+        Root: "/",
+        Edit: "/edit",
+        Statements: "/statements",
+      }),
       Settings: "/settings",
       Billing: "/billing",
     }),
@@ -31,7 +56,7 @@ const routes = {
         "List",
         // transactionStatus[] is for filters
         // status is the consent status automatically set by consent redirection
-        "/?:isAfterUpdatedAt&:isBeforeUpdatedAt&:paymentProduct[]&:search&:transactionStatus[]&:kind{transfer|standingOrder|beneficiary}&:consentId&:status",
+        "/?:isAfterUpdatedAt&:isBeforeUpdatedAt&:amount&:paymentProduct[]&:search&:transactionStatus[]&:kind{transfer|standingOrder|beneficiary}&:consentId&:status",
         {
           Area: "/*",
           Root: "/",
@@ -51,7 +76,7 @@ const routes = {
       "/payments?:kind{transfer|standingOrder|beneficiary}&:consentId&:status",
       {
         Area: "/*",
-        Root: "/?:isAfterUpdatedAt&:isBeforeUpdatedAt&:search&:transactionStatus[]",
+        Root: "/?:isAfterUpdatedAt&:isBeforeUpdatedAt&:amount&:search&:transactionStatus[]",
         New: "/new?:type{transfer|recurring|international|bulk}",
         RecurringTransferList: "/recurring-transfer/list",
         RecurringTransferNew: "/recurring-transfer/new",
@@ -80,7 +105,7 @@ const routes = {
       ItemPhysicalCard: "/:cardId/physical-card",
       ItemMobilePayment: "/:cardId/mobile-payment",
       ItemTransactions:
-        "/:cardId/transactions?:isAfterUpdatedAt&:isBeforeUpdatedAt&:search&:status[]",
+        "/:cardId/transactions?:isAfterUpdatedAt&:isBeforeUpdatedAt&:amount&:search&:status[]",
       ItemSettings: "/:cardId/settings",
       ItemOrder: "/:cardId/order",
       ItemOrderAddress: "/:cardId/order/address",
@@ -101,18 +126,24 @@ const routes = {
       },
     ),
 
-    ...createGroup("Merchants", "/merchants?:new", {
+    ...createGroup("Merchants", "/merchants?:new{true}&:check{declare|next}", {
       Area: "/*",
-      Root: "/?:new{true}",
+      Root: "/",
       List: "/profiles?:status{Active|Inactive}",
 
       ...createGroup("Profile", "/:merchantProfileId", {
         Area: "/*",
-        Settings: "/settings?:check{declare|next}",
+        Settings: "/settings",
         ...createGroup("PaymentLink", "/payment-links?:status{Active|Archived}&:search", {
           Area: "/*",
           List: "/",
           Details: "/:paymentLinkId",
+        }),
+        ...createGroup("Payments", "/payments?:search&:paymentMethod[]&:status[]", {
+          Area: "/*",
+          Picker: "/picker",
+          List: "/",
+          Details: "/:paymentId",
         }),
       }),
     }),
@@ -131,12 +162,32 @@ export const Router = createRouter(routes, {
 type Routes = InferRoutes<typeof Router>;
 
 export type RouteName = keyof Routes;
-export type GetRouteParams<T extends RouteName> = Routes[T];
+export type RouteParams<T extends RouteName> = Routes[T];
+
+export const verificationRenewalRoutes = [
+  "VerificationRenewalRoot",
+  "VerificationRenewalPersonalInformation",
+  "VerificationRenewalDocuments",
+  "VerificationRenewalFinalize",
+  "VerificationRenewalAdministratorInformation",
+  "VerificationRenewalOwnership",
+  "VerificationRenewalAccountHolderInformation",
+] as const satisfies RouteName[];
+
+export type VerificationRenewalRoute = (typeof verificationRenewalRoutes)[number];
+
+export const accountActivationRoutes = [
+  "AccountActivationRoot",
+  "AccountActivationAdditionalInfos",
+  "AccountActivationFirstTransfer",
+  "AccountActivationIdentification",
+  "AccountActivationSupportingDocs",
+] as const satisfies RouteName[];
 
 export const accountRoutes = [
   "AccountRoot",
   "AccountProfile",
-  "AccountActivation",
+  "AccountActivationArea",
   "AccountTransactionsArea",
   "AccountDetailsArea",
   "AccountPaymentsArea",

@@ -1,5 +1,6 @@
 import { Array, Option } from "@swan-io/boxed";
 import { useMutation } from "@swan-io/graphql-client";
+import { BorderedIcon } from "@swan-io/lake/src/components/BorderedIcon";
 import { Box } from "@swan-io/lake/src/components/Box";
 import { Fill } from "@swan-io/lake/src/components/Fill";
 import { Icon } from "@swan-io/lake/src/components/Icon";
@@ -27,6 +28,10 @@ import { LakeModal } from "@swan-io/shared-business/src/components/LakeModal";
 import { getCountryName, isCountryCCA3 } from "@swan-io/shared-business/src/constants/countries";
 import { showToast } from "@swan-io/shared-business/src/state/toasts";
 import { translateError } from "@swan-io/shared-business/src/utils/i18n";
+import {
+  validateNullableRequired,
+  validateRequired,
+} from "@swan-io/shared-business/src/utils/validation";
 import { combineValidators, useForm } from "@swan-io/use-form";
 import dayjs from "dayjs";
 import { useState } from "react";
@@ -52,12 +57,12 @@ import {
 import { usePermissions } from "../hooks/usePermissions";
 import { getMemberName } from "../utils/accountMembership";
 import { partnerClient } from "../utils/gql";
-import { formatCurrency, t } from "../utils/i18n";
+import { formatCurrency, formatNestedMessage, t } from "../utils/i18n";
 import { Router } from "../utils/routes";
-import { validateNullableRequired, validateRequired } from "../utils/validations";
 import { Address } from "./CardItemPhysicalDeliveryAddressForm";
 import { CardItemPhysicalDeliveryWizard } from "./CardItemPhysicalDeliveryWizard";
 import { CardItemPhysicalRenewalWizard } from "./CardItemPhysicalRenewalWizard";
+import { RemainingSpendingLimit } from "./CardItemSpendingLimit";
 import { MaskedCard } from "./MaskedCard";
 
 const styles = StyleSheet.create({
@@ -334,8 +339,12 @@ export const CardItemPhysicalDetails = ({
   onRefreshRequest,
   hasBindingUserError,
 }: Props) => {
-  const { canPrintPhysicalCard: canOrderPhysicalCard, canCancelCardForOtherMembership } =
-    usePermissions();
+  const {
+    canPrintPhysicalCard: canOrderPhysicalCard,
+    canCancelCardForOtherMembership,
+    canUpdateCard,
+    canResumePhysicalCard,
+  } = usePermissions();
   const [orderModal, setOrderModal] = useState<Option<{ initialShippingAddress?: Address }>>(
     Option.None(),
   );
@@ -528,6 +537,7 @@ export const CardItemPhysicalDetails = ({
   const textColor = hasBindingUserError ? colors.gray[300] : colors.gray[800];
   const previousCard = card.physicalCard?.previousPhysicalCards[0];
   const [currentCard, setCurrentCard] = useState<"previous" | "renewed">("renewed");
+  const cardHolderType = card.accountMembership.account?.holder.info.type;
 
   return (
     <ResponsiveContainer breakpoint={breakpoints.medium} style={styles.root}>
@@ -582,38 +592,42 @@ export const CardItemPhysicalDetails = ({
                           .endOf("month")
                           .format("LL"),
                       })}
-                      children={
-                        <>
-                          <LakeText>
-                            {t("card.physical.toRenewAlert.description", {
-                              deadline: fourWeeksBefore,
-                              address: completeAddress,
-                            })}
-                          </LakeText>
+                    >
+                      {" "}
+                      <>
+                        <LakeText>
+                          {t("card.physical.toRenewAlert.description", {
+                            deadline: fourWeeksBefore,
+                            address: completeAddress,
+                          })}
+                        </LakeText>
 
-                          <Space height={12} />
+                        {canOrderPhysicalCard && (
+                          <>
+                            <Space height={12} />
 
-                          <Box>
-                            <LakeButton
-                              ariaLabel={t("card.physical.toRenewAlert.cta")}
-                              size="small"
-                              icon="edit-regular"
-                              mode="secondary"
-                              style={styles.renewAlertCta}
-                              onPress={() => {
-                                setRenewalModal(
-                                  Option.Some({
-                                    initialShippingAddress: address,
-                                  }),
-                                );
-                              }}
-                            >
-                              {t("card.physical.toRenewAlert.cta")}
-                            </LakeButton>
-                          </Box>
-                        </>
-                      }
-                    />
+                            <Box>
+                              <LakeButton
+                                ariaLabel={t("card.physical.toRenewAlert.cta")}
+                                size="small"
+                                icon="edit-regular"
+                                mode="secondary"
+                                style={styles.renewAlertCta}
+                                onPress={() => {
+                                  setRenewalModal(
+                                    Option.Some({
+                                      initialShippingAddress: address,
+                                    }),
+                                  );
+                                }}
+                              >
+                                {t("card.physical.toRenewAlert.cta")}
+                              </LakeButton>
+                            </Box>
+                          </>
+                        )}
+                      </>
+                    </LakeAlert>
                   </>
                 );
               },
@@ -632,27 +646,17 @@ export const CardItemPhysicalDetails = ({
                       style={styles.renewAlert}
                       variant="info"
                       title={t("card.physical.expiredAlert")}
-                      children={
-                        <>
-                          <LakeText>{t("card.physical.expiredAlert.description")}</LakeText>
-                        </>
-                      }
-                    />
+                    >
+                      <LakeText>{t("card.physical.expiredAlert.description")}</LakeText>
+                    </LakeAlert>
                   ) : (
                     <LakeAlert
                       style={styles.renewAlert}
                       variant="info"
-                      title={t("card.physical.toRenewAlert", {
-                        expiryDate: dayjs(previousPhysicalCards[0].expiryDate, "MM/YY")
-                          .endOf("month")
-                          .format("LL"),
-                      })}
-                      children={
-                        <>
-                          <LakeText>{t("card.physical.toRenewAlert.info")}</LakeText>
-                        </>
-                      }
-                    />
+                      title={t("card.physical.renewedAlert")}
+                    >
+                      <LakeText>{t("card.physical.renewedAlert.info")}</LakeText>
+                    </LakeAlert>
                   )}
                 </>
               ),
@@ -946,6 +950,19 @@ export const CardItemPhysicalDetails = ({
                               <>
                                 <Space height={24} />
 
+                                <LakeAlert
+                                  variant="info"
+                                  title={formatNestedMessage("card.physical.activateAlert", {
+                                    bold: text => (
+                                      <LakeText color={colors.shakespear[700]} variant="semibold">
+                                        {text}
+                                      </LakeText>
+                                    ),
+                                  })}
+                                />
+
+                                <Space height={24} />
+
                                 <LakeButton
                                   color="current"
                                   onPress={() => setIsActivationModalOpen(true)}
@@ -1080,23 +1097,17 @@ export const CardItemPhysicalDetails = ({
                         if (spendingLimit == null) {
                           return null;
                         }
+
                         const spentOverLimitRatio = Math.min(
                           Number(spending.amount.value) / Number(spendingLimit.amount.value),
                           1,
                         );
-                        const remainderToSpend = Math.max(
-                          0,
-                          Number(spendingLimit.amount.value) - Number(spending.amount.value),
-                        );
+
                         return (
                           <>
                             <Space height={24} />
 
-                            <Tile
-                              style={styles.spendingContainer}
-                              paddingVertical={16}
-                              paddingHorizontal={16}
-                            >
+                            <View style={styles.spendingContainer}>
                               <View style={styles.spendingLimitText}>
                                 <LakeText color={textColor} variant="smallRegular">
                                   {t("card.spendingLimit")}
@@ -1156,42 +1167,32 @@ export const CardItemPhysicalDetails = ({
 
                               <Space height={8} />
 
-                              <View style={styles.spendingLimitText}>
-                                <LakeText color={textColor} variant="smallRegular">
-                                  {match(spendingLimit.period)
-                                    .with("Daily", () => t("card.spendingLimit.remaining.daily"))
-                                    .with("Weekly", () => t("card.spendingLimit.remaining.weekly"))
-                                    .with("Monthly", () =>
-                                      t("card.spendingLimit.remaining.monthly"),
-                                    )
-                                    .with("Always", () => t("card.spendingLimit.remaining.always"))
-                                    .exhaustive()}
-                                </LakeText>
+                              <RemainingSpendingLimit
+                                spending={spending}
+                                spendingLimit={spendingLimit}
+                                hasBindingUserError={hasBindingUserError}
+                              />
 
-                                <Fill minWidth={24} />
-
-                                <LakeText color={textColor} variant="smallRegular">
-                                  {formatCurrency(remainderToSpend, spending.amount.currency)}
-                                </LakeText>
-                              </View>
-                            </Tile>
-
-                            <Space height={24} />
+                              <Space height={24} />
+                            </View>
                           </>
                         );
                       },
                     )
                     .otherwise(() => null)}
 
-                  {match(physicalCard)
+                  {match({ canUpdateCard, canResumePhysicalCard, physicalCard })
                     .with(
                       {
-                        statusInfo: {
-                          __typename: P.union(
-                            "PhysicalCardActivatedStatusInfo",
-                            "PhysicalCardRenewedStatusInfo",
-                            "PhysicalCardToRenewStatusInfo",
-                          ),
+                        canUpdateCard: true,
+                        physicalCard: {
+                          statusInfo: {
+                            __typename: P.union(
+                              "PhysicalCardActivatedStatusInfo",
+                              "PhysicalCardRenewedStatusInfo",
+                              "PhysicalCardToRenewStatusInfo",
+                            ),
+                          },
                         },
                         previousPhysicalCards: [{ isExpired: true }, ...P.array(P._)],
                       },
@@ -1224,12 +1225,15 @@ export const CardItemPhysicalDetails = ({
                     )
                     .with(
                       {
-                        statusInfo: {
-                          __typename: P.union(
-                            "PhysicalCardActivatedStatusInfo",
-                            "PhysicalCardRenewedStatusInfo",
-                            "PhysicalCardToRenewStatusInfo",
-                          ),
+                        canUpdateCard: true,
+                        physicalCard: {
+                          statusInfo: {
+                            __typename: P.union(
+                              "PhysicalCardActivatedStatusInfo",
+                              "PhysicalCardRenewedStatusInfo",
+                              "PhysicalCardToRenewStatusInfo",
+                            ),
+                          },
                         },
                       },
                       () => (
@@ -1260,43 +1264,49 @@ export const CardItemPhysicalDetails = ({
                     )
                     .with(
                       {
-                        statusInfo: {
-                          __typename: "PhysicalCardSuspendedStatusInfo",
+                        canResumePhysicalCard: true,
+                        physicalCard: {
+                          statusInfo: {
+                            __typename: "PhysicalCardSuspendedStatusInfo",
+                          },
                         },
                       },
 
-                      () => (
-                        <>
-                          <LakeTooltip
-                            content={t("card.tooltipConflict")}
-                            placement="center"
-                            disabled={!hasBindingUserError}
-                          >
-                            <LakeButton
-                              color="warning"
-                              disabled={hasBindingUserError}
-                              mode="primary"
-                              icon="lock-open-regular"
-                              loading={cardUnsuspension.isLoading()}
-                              onPress={() => unsuspendCard()}
+                      () =>
+                        isCurrentUserCardOwner ? (
+                          <>
+                            <LakeTooltip
+                              content={t("card.tooltipConflict")}
+                              placement="center"
+                              disabled={!hasBindingUserError}
                             >
-                              {t("card.physical.unblock")}
-                            </LakeButton>
-                          </LakeTooltip>
+                              <LakeButton
+                                color="warning"
+                                disabled={hasBindingUserError}
+                                mode="primary"
+                                icon="lock-open-regular"
+                                loading={cardUnsuspension.isLoading()}
+                                onPress={() => unsuspendCard()}
+                              >
+                                {t("card.physical.unblock")}
+                              </LakeButton>
+                            </LakeTooltip>
 
-                          <Space height={12} />
-                        </>
-                      ),
+                            <Space height={12} />
+                          </>
+                        ) : null,
                     )
                     .otherwise(() => [])}
 
                   {match({
                     currentUserHasRights: isCurrentUserCardOwner || canCancelCardForOtherMembership,
+                    canUpdateCard,
                     physicalCard,
                   })
                     .with(
                       {
                         currentUserHasRights: true,
+                        canUpdateCard: true,
                         physicalCard: {
                           statusInfo: {
                             __typename: P.not(
@@ -1330,6 +1340,7 @@ export const CardItemPhysicalDetails = ({
                     .with(
                       {
                         currentUserHasRights: true,
+                        canUpdateCard: true,
                         physicalCard: {
                           statusInfo: {
                             __typename: P.not(
@@ -1365,10 +1376,8 @@ export const CardItemPhysicalDetails = ({
                       { __typename: "PhysicalCardToActivateStatusInfo", trackingNumber: P.nullish },
                       ({ address }) => (
                         <>
-                          <LakeAlert
-                            variant={"neutral"}
-                            title={t("card.shippingAddress")}
-                            children={[
+                          <LakeAlert variant={"neutral"} title={t("card.shippingAddress")}>
+                            {[
                               address.addressLine1,
                               address.addressLine2,
                               address.postalCode,
@@ -1379,7 +1388,7 @@ export const CardItemPhysicalDetails = ({
                             ]
                               .filter(Boolean)
                               .join(", ")}
-                          />
+                          </LakeAlert>
 
                           <Space height={24} />
                         </>
@@ -1390,10 +1399,8 @@ export const CardItemPhysicalDetails = ({
                       ({ address }) =>
                         currentCard === "renewed" && (
                           <>
-                            <LakeAlert
-                              variant={"neutral"}
-                              title={t("card.shippingAddress")}
-                              children={[
+                            <LakeAlert variant={"neutral"} title={t("card.shippingAddress")}>
+                              {[
                                 address.addressLine1,
                                 address.addressLine2,
                                 address.postalCode,
@@ -1404,7 +1411,7 @@ export const CardItemPhysicalDetails = ({
                               ]
                                 .filter(Boolean)
                                 .join(", ")}
-                            />
+                            </LakeAlert>
 
                             <Space height={24} />
                           </>
@@ -1416,7 +1423,7 @@ export const CardItemPhysicalDetails = ({
                     .with(
                       {
                         __typename: "PhysicalCardRenewedStatusInfo",
-                        trackingNumber: P.string,
+                        trackingNumber: P.intersection(P.nonNullable, P.not("")),
                         shippingProvider: P.string,
                       },
                       ({ trackingNumber, shippingProvider, address }) => {
@@ -1451,7 +1458,8 @@ export const CardItemPhysicalDetails = ({
                                 anchored={true}
                                 variant={"neutral"}
                                 title={t("card.yourAddress")}
-                                children={[
+                              >
+                                {[
                                   address.addressLine1,
                                   address.addressLine2,
                                   address.postalCode,
@@ -1462,7 +1470,7 @@ export const CardItemPhysicalDetails = ({
                                 ]
                                   .filter(Boolean)
                                   .join(", ")}
-                              />
+                              </LakeAlert>
 
                               <Space height={24} />
                             </>
@@ -1473,7 +1481,7 @@ export const CardItemPhysicalDetails = ({
                     .with(
                       {
                         __typename: "PhysicalCardToActivateStatusInfo",
-                        trackingNumber: P.string,
+                        trackingNumber: P.intersection(P.nonNullable, P.not("")),
                         shippingProvider: P.string,
                       },
                       ({ trackingNumber, shippingProvider, address }) => (
@@ -1506,7 +1514,8 @@ export const CardItemPhysicalDetails = ({
                             anchored={true}
                             variant={"neutral"}
                             title={t("card.yourAddress")}
-                            children={[
+                          >
+                            {[
                               address.addressLine1,
                               address.addressLine2,
                               address.postalCode,
@@ -1517,7 +1526,7 @@ export const CardItemPhysicalDetails = ({
                             ]
                               .filter(Boolean)
                               .join(", ")}
-                          />
+                          </LakeAlert>
 
                           <Space height={24} />
                         </>
@@ -1582,8 +1591,40 @@ export const CardItemPhysicalDetails = ({
               ))
               .exhaustive()}
           </View>
+          <Space height={12} />
+
+          {cardHolderType === "Company" &&
+            match(card.insuranceSubscription)
+              .with(P.nonNullable, ({ package: { level } }) => (
+                <Box alignItems="center" justifyContent="center" direction="row">
+                  <BorderedIcon
+                    name="shield-checkmark-regular"
+                    padding={4}
+                    size={24}
+                    color="current"
+                    borderRadius={4}
+                  />
+                  <Space width={8} />
+
+                  {match(level)
+                    .with("Basic", "Standard", () => (
+                      <LakeText>{t("cardDetail.insurance.description.basic")}</LakeText>
+                    ))
+                    .with("Essential", () => (
+                      <LakeText>{t("cardDetail.insurance.description.essential")}</LakeText>
+                    ))
+                    .with("Premium", () => (
+                      <LakeText variant="smallRegular">
+                        {t("cardDetail.insurance.description.premium")}
+                      </LakeText>
+                    ))
+                    .otherwise(() => null)}
+                </Box>
+              ))
+              .otherwise(() => null)}
 
           <CardItemPhysicalDeliveryWizard
+            isCurrentUserCardOwner={isCurrentUserCardOwner}
             visible={orderModal.isSome()}
             onPressClose={() => setOrderModal(Option.None())}
             onSubmit={onShippingFormSubmit}

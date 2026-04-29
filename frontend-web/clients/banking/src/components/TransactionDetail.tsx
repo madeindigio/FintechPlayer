@@ -40,11 +40,10 @@ import {
   GenerateTransactionStatementDocument,
   TransactionDocument,
   TransactionStatementDocument,
-  TransactionStatementLanguage,
 } from "../graphql/partner";
 import { usePermissions } from "../hooks/usePermissions";
 import { NotFoundPage } from "../pages/NotFoundPage";
-import { formatCurrency, formatDateTime, locale, t } from "../utils/i18n";
+import { formatCurrency, formatDateTime, t } from "../utils/i18n";
 import { Router } from "../utils/routes";
 import {
   getFeesDescription,
@@ -124,9 +123,9 @@ export const TransactionDetail = ({ accountMembershipId, transactionId, large }:
 
   const [isGeneratingStatement, setIsGeneratingStatement] = useState(false);
 
-  const generateStatement = ({ language }: { language: TransactionStatementLanguage }) => {
+  const generateStatement = () => {
     setIsGeneratingStatement(true);
-    generateTransactionStatement({ input: { transactionId, language } })
+    generateTransactionStatement({ input: { transactionId } })
       .mapOk(data => data.generateTransactionStatement)
       .mapOkToResult(filterRejectionsToResult)
       .mapOkToResult(data => Option.fromNullable(data.transactionStatement).toResult(new Error()))
@@ -156,7 +155,8 @@ export const TransactionDetail = ({ accountMembershipId, transactionId, large }:
       .tapError(error => showToast({ variant: "error", title: translateError(error), error }));
   };
 
-  const { canReadOtherMembersCards: canQueryCardOnTransaction } = usePermissions();
+  const { canReadOtherMembersCards: canQueryCardOnTransaction, canGenerateAccountStatement } =
+    usePermissions();
   const [data] = useQuery(
     TransactionDocument,
     {
@@ -239,8 +239,9 @@ export const TransactionDetail = ({ accountMembershipId, transactionId, large }:
                     anchored={true}
                     variant="warning"
                     title={t("transaction.instantTransferUnavailable")}
-                    children={description}
-                  />
+                  >
+                    {description}
+                  </LakeAlert>
                 );
               },
             )
@@ -440,10 +441,17 @@ export const TransactionDetail = ({ accountMembershipId, transactionId, large }:
                   { __typename: "CardTransaction" },
                   {
                     cardDetails: {
-                      __typename: "CardOutDetails",
+                      __typename: P.union("CardOutDetails", "CardInDetails"),
                     },
                   },
-                  ({ cardDetails, payment, enrichedTransactionInfo, statusInfo: { status } }) => {
+                  ({
+                    cardDetails,
+                    payment,
+                    enrichedTransactionInfo,
+                    statusInfo: { status },
+                    reservedAmountReleasedAt,
+                    reservedAmount,
+                  }) => {
                     return (
                       <ReadOnlyFieldList>
                         {isNotNullish(payment) && (status === "Booked" || status === "Pending") && (
@@ -478,6 +486,25 @@ export const TransactionDetail = ({ accountMembershipId, transactionId, large }:
                           text={t("transactions.method.Card")}
                           icon="payment-regular"
                         />
+                        {cardDetails?.__typename === "CardInDetails" &&
+                          isNotNullishOrEmpty(reservedAmountReleasedAt) && (
+                            <ReadOnlyFieldList>
+                              <DetailLine
+                                label={t("transaction.reservedUntil")}
+                                text={formatDateTime(reservedAmountReleasedAt, "LLL")}
+                                icon="calendar-ltr-regular"
+                              />
+                              {isNotNullish(reservedAmount) && (
+                                <DetailLine
+                                  label={t("transaction.reservedAmount")}
+                                  text={formatCurrency(
+                                    Number(reservedAmount.value),
+                                    reservedAmount.currency,
+                                  )}
+                                />
+                              )}
+                            </ReadOnlyFieldList>
+                          )}
 
                         {match(enrichedTransactionInfo)
                           .with({ isSubscription: P.select(P.boolean) }, isSubscription => (
@@ -902,7 +929,7 @@ export const TransactionDetail = ({ accountMembershipId, transactionId, large }:
                 />
               </ReadOnlyFieldList>
 
-              {transaction.statementCanBeGenerated === true ? (
+              {transaction.statementCanBeGenerated === true && canGenerateAccountStatement ? (
                 <View style={styles.buttonGroup}>
                   <LakeButtonGroup paddingBottom={0}>
                     <LakeButton
@@ -910,11 +937,7 @@ export const TransactionDetail = ({ accountMembershipId, transactionId, large }:
                       color="current"
                       icon="arrow-download-filled"
                       loading={isGeneratingStatement}
-                      onPress={() =>
-                        generateStatement({
-                          language: transaction.account?.language ?? locale.language,
-                        })
-                      }
+                      onPress={() => generateStatement()}
                     >
                       {t("transaction.transactionConfirmation")}
                     </LakeButton>

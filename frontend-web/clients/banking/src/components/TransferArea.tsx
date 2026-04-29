@@ -168,11 +168,7 @@ export const TransferArea = ({
 
                     {match(route)
                       .with({ name: "AccountPaymentsRoot" }, ({ params }) => (
-                        <TransferList
-                          accountId={accountId}
-                          accountMembershipId={accountMembershipId}
-                          params={params}
-                        />
+                        <TransferList accountId={accountId} params={params} />
                       ))
                       .with(
                         { name: "AccountPaymentsRecurringTransferList" },
@@ -193,11 +189,7 @@ export const TransferArea = ({
                         { name: "AccountPaymentsBeneficiariesDetails" },
                         ({ params }) =>
                           canReadTrustedBeneficiary ? (
-                            <BeneficiaryList
-                              accountId={accountId}
-                              accountCountry={accountCountry}
-                              params={params}
-                            />
+                            <BeneficiaryList accountId={accountId} params={params} />
                           ) : (
                             <NotFoundPage />
                           ),
@@ -225,7 +217,6 @@ export const TransferArea = ({
           .with({ name: "AccountPaymentsBeneficiariesNew" }, ({ params }) =>
             canCreateTrustedBeneficiary ? (
               <BeneficiaryTypePicker
-                accountCountry={accountCountry}
                 accountId={accountId}
                 accountMembershipId={accountMembershipId}
                 params={params}

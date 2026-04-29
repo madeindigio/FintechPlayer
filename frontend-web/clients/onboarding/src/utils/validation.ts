@@ -1,55 +1,14 @@
 import { Array, Option } from "@swan-io/boxed";
 import { isEmpty } from "@swan-io/lake/src/utils/nullish";
-import { isValidEmail, isValidVatNumber } from "@swan-io/shared-business/src/utils/validation";
+import { validateRequired } from "@swan-io/shared-business/src/utils/validation";
 import { combineValidators, Validator } from "@swan-io/use-form";
 import dayjs from "dayjs";
-import { match } from "ts-pattern";
+import { match, P } from "ts-pattern";
 import {
   OnboardingInvalidInfoFragment,
   UpdateValidationErrorsFragment,
-  ValidationFieldErrorCode,
 } from "../graphql/unauthenticated";
 import { locale, t } from "./i18n";
-
-export const validateRequiredBoolean: Validator<boolean | undefined> = value => {
-  if (typeof value != "boolean") {
-    return t("error.requiredField");
-  }
-};
-
-export const validateRequired: Validator<string> = value => {
-  if (!value) {
-    return t("error.requiredField");
-  }
-};
-
-// This regex was copied from the backend to ensure that the validation is the same
-// Matches all unicode letters, spaces, dashes, apostrophes, commas, and single quotes
-const VALID_NAME_RE =
-  /^(?:[A-Za-zÀ-ÖÙ-öù-ƿǄ-ʯʹ-ʽΈ-ΊΎ-ΡΣ-ҁҊ-Ֆա-ևႠ-Ⴥა-ჺᄀ-፜፩-ᎏᵫ-ᶚḀ-῾ⴀ-ⴥ⺀-⿕ぁ-ゖゝ-ㇿ㋿-鿯鿿-ꒌꙀ-ꙮꚀ-ꚙꜦ-ꞇꞍ-ꞿꥠ-ꥼＡ-Ｚａ-ｚ.]| |'|-|Ά|Ό|,)*$/;
-
-export const validateName: Validator<string> = value => {
-  if (!value) {
-    return t("error.requiredField");
-  }
-
-  // Rule copied from the backend
-  if (value.length > 100) {
-    return t("error.invalidName");
-  }
-
-  const isValid = VALID_NAME_RE.test(value);
-
-  if (!isValid) {
-    return t("error.invalidName");
-  }
-};
-
-export const validateEmail: Validator<string> = value => {
-  if (!isValidEmail(value)) {
-    return t("error.invalidEmail");
-  }
-};
 
 export const validateMaxLength: (maxLength: number) => Validator<string> = maxLength => value => {
   if (!value) {
@@ -63,8 +22,45 @@ export const validateMaxLength: (maxLength: number) => Validator<string> = maxLe
 
 export type ServerInvalidFieldCode = "Missing";
 
+// @depreacted: moving to extractServerValidationFields when using Graphql error
 export const extractServerValidationErrors = <T extends string>(
   { fields }: UpdateValidationErrorsFragment,
+  pathToFieldName: (path: string[]) => T | null = () => null,
+): { fieldName: T; code: ValidationFieldErrorCode }[] => {
+  return Array.filterMap(fields, ({ path, code }) => {
+    const fieldName = pathToFieldName(path);
+    if (fieldName != null) {
+      return Option.Some({ fieldName, code });
+    }
+    return Option.None();
+  });
+};
+
+const validationFieldErrorCodePattern = P.union(
+  "InvalidString",
+  "InvalidType",
+  "TooLong",
+  "TooShort",
+  "UnrecognizedKeys",
+);
+
+type ValidationFieldErrorCode = P.infer<typeof validationFieldErrorCodePattern>;
+
+export const badUserInputErrorPattern = [
+  {
+    extensions: {
+      code: "BAD_USER_INPUT",
+      meta: {
+        fields: P.array({ path: P.array(P.string), code: validationFieldErrorCodePattern }).select(
+          "fields",
+        ),
+      },
+    },
+  },
+] as const;
+
+export const extractServerValidationFields = <T extends string>(
+  fields: P.infer<typeof badUserInputErrorPattern>[0]["extensions"]["meta"]["fields"],
   pathToFieldName: (path: string[]) => T | null = () => null,
 ): { fieldName: T; code: ValidationFieldErrorCode }[] => {
   return Array.filterMap(fields, ({ path, code }) => {
@@ -95,7 +91,7 @@ export const extractServerInvalidFields = <T extends string>(
 
 export const getValidationErrorMessage = (
   code: ValidationFieldErrorCode | ServerInvalidFieldCode,
-  currentValue?: string,
+  currentValue?: string | string[],
 ): string => {
   return match(code)
     .with("Missing", () => t("error.requiredField"))
@@ -107,14 +103,10 @@ export const getValidationErrorMessage = (
     .exhaustive();
 };
 
-export const validateVatNumber: Validator<string> = value => {
-  const cleaned = value.replace(/[^A-Z0-9]/gi, "");
-  if (cleaned.length === 0) {
-    return;
-  }
-
-  if (!isValidVatNumber(cleaned)) {
-    return t("common.form.invalidVatNumber");
+export const validateUboPercentage: Validator<string> = value => {
+  const num = Number(value);
+  if (Number.isNaN(num) || num < 25 || num > 100) {
+    return t("error.invalidUboPercentage");
   }
 };
 
@@ -126,3 +118,18 @@ export const validateDate: Validator<string> = combineValidators<string>(
     }
   },
 );
+
+// use for Belgium only
+export const validateRegistrationNumber: Validator<string> = value => {
+  // test integer
+  if (!/^\d{10}$/.test(value)) {
+    return t("common.form.help.nbDigits", { nbDigits: "10" });
+  }
+};
+
+// check url with prefix https:// optional
+export const isValidUrl = (value: string) => {
+  return /^(?:https?:\/\/)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)$/.test(
+    value,
+  );
+};

@@ -1,10 +1,10 @@
 import { Future, Result } from "@swan-io/boxed";
 import { GraphQLClient } from "graphql-request";
-import { match } from "ts-pattern";
+import { match, P } from "ts-pattern";
 import { env } from "../env";
 import { AccountCountry, getSdk } from "../graphql/partner";
 import { fetchWithTimeout } from "../utils/fetch";
-import { OAuth2ClientCredentialsError, OAuth2NetworkError, getClientAccessToken } from "./oauth2";
+import { getClientAccessToken, OAuth2ClientCredentialsError, OAuth2NetworkError } from "./oauth2";
 
 export const sdk = getSdk(new GraphQLClient(env.PARTNER_API_URL, { fetch: fetchWithTimeout }));
 
@@ -19,16 +19,27 @@ export const toFuture = <T>(promise: Promise<T>): Future<Result<T, ServerError>>
 let projectId: Future<
   Result<string, OAuth2NetworkError | SyntaxError | OAuth2ClientCredentialsError>
 >;
+let projectIdFailed = false;
 
 export const getProjectId = () => {
-  if (projectId != undefined) {
+  if (projectId != null && !projectIdFailed) {
     return projectId;
   }
+  projectIdFailed = false;
+
   projectId = getClientAccessToken()
     .flatMapOk(accessToken =>
       toFuture(sdk.ProjectId({}, { Authorization: `Bearer ${accessToken}` })),
     )
-    .mapOk(({ projectInfo: { id } }) => id);
+    .mapOk(({ projectInfo: { id } }) => id)
+    .tapError(error => {
+      // We retry only if the error isn't related with request context
+      if (!error.message.includes("context forbidden")) {
+        projectIdFailed = true;
+      }
+      console.error("Failed to get project ID", error);
+    });
+
   return projectId;
 };
 
@@ -38,9 +49,9 @@ export class UnsupportedAccountCountryError extends Error {
 
 export const parseAccountCountry = (
   accountCountry: unknown,
-): Result<AccountCountry | undefined, UnsupportedAccountCountryError> =>
+): Result<AccountCountry, UnsupportedAccountCountryError> =>
   match(accountCountry)
-    .with("FRA", "DEU", "ESP", "NLD", "ITA", undefined, value => Result.Ok(value))
+    .with("FRA", "DEU", "ESP", "NLD", "ITA", "BEL", value => Result.Ok(value))
     .otherwise(country => Result.Error(new UnsupportedAccountCountryError(String(country))));
 
 export class FinalizeOnboardingRejectionError extends Error {
@@ -72,13 +83,47 @@ export const finalizeOnboarding = ({
     )
     .mapOk(onboarding => {
       const oauthRedirectUrl = onboarding.oAuthRedirectParameters?.redirectUrl?.trim();
-      const legacyRedirectUrl = onboarding.redirectUrl.trim();
       const redirectUrl =
-        oauthRedirectUrl != null && oauthRedirectUrl !== ""
-          ? oauthRedirectUrl
-          : legacyRedirectUrl != null && legacyRedirectUrl !== ""
-            ? legacyRedirectUrl
-            : undefined;
+        oauthRedirectUrl != null && oauthRedirectUrl !== "" ? oauthRedirectUrl : undefined;
+
+      return {
+        accountMembershipId: onboarding.account?.legalRepresentativeMembership.id,
+        redirectUrl,
+        state: onboarding.oAuthRedirectParameters?.state ?? undefined,
+      };
+    });
+};
+
+export const finalizeOnboardingV2 = ({
+  onboardingId,
+  accessToken,
+}: {
+  onboardingId: string;
+  accessToken: string;
+}) => {
+  return toFuture(
+    sdk.FinalizeAccountHolderOnboarding(
+      { input: { onboardingId } },
+      { Authorization: `Bearer ${accessToken}` },
+    ),
+  )
+    .mapOkToResult(({ finalizeAccountHolderOnboarding }) =>
+      match(finalizeAccountHolderOnboarding)
+        .with({ __typename: "FinalizeAccountHolderOnboardingSuccessPayload" }, ({ onboarding }) =>
+          Result.Ok(onboarding),
+        )
+        .otherwise(({ __typename, message }) =>
+          Result.Error(
+            new FinalizeOnboardingRejectionError(
+              JSON.stringify({ onboardingId, __typename, message }),
+            ),
+          ),
+        ),
+    )
+    .mapOk(onboarding => {
+      const oauthRedirectUrl = onboarding.oAuthRedirectParameters?.redirectUrl?.trim();
+      const redirectUrl =
+        oauthRedirectUrl != null && oauthRedirectUrl !== "" ? oauthRedirectUrl : undefined;
 
       return {
         accountMembershipId: onboarding.account?.legalRepresentativeMembership.id,
@@ -119,4 +164,64 @@ export const bindAccountMembership = ({
         ),
       );
   });
+};
+
+export class CreateOnboardingRejectionError extends Error {
+  tag = "CreateOnboardingRejectionError";
+}
+
+export const createPublicIndividualAccountHolderOnboarding = ({
+  projectId,
+  accountCountry,
+}: {
+  projectId: string;
+  accountCountry: AccountCountry;
+}) => {
+  return toFuture(
+    sdk.CreatePublicIndividualAccountHolderOnboarding({
+      input: { projectId, accountInfo: { country: accountCountry }, accountAdmin: {} },
+    }),
+  ).mapOkToResult(({ createPublicIndividualAccountHolderOnboarding }) =>
+    match(createPublicIndividualAccountHolderOnboarding)
+      .with(
+        { __typename: "CreatePublicIndividualAccountHolderOnboardingSuccessPayload" },
+        ({ onboarding: { id } }) => Result.Ok(id),
+      )
+      .with(
+        {
+          __typename: P.union("PublicOnboardingDisabledRejection"),
+        },
+        ({ __typename, message }) =>
+          Result.Error(new CreateOnboardingRejectionError(JSON.stringify({ __typename, message }))),
+      )
+      .exhaustive(),
+  );
+};
+
+export const createPublicCompanyAccountHolderOnboarding = ({
+  projectId,
+  accountCountry,
+}: {
+  projectId: string;
+  accountCountry: AccountCountry;
+}) => {
+  return toFuture(
+    sdk.CreatePublicCompanyAccountHolderOnboarding({
+      input: { accountInfo: { country: accountCountry }, accountAdmin: {}, company: {}, projectId },
+    }),
+  ).mapOkToResult(({ createPublicCompanyAccountHolderOnboarding }) =>
+    match(createPublicCompanyAccountHolderOnboarding)
+      .with(
+        { __typename: "CreatePublicCompanyAccountHolderOnboardingSuccessPayload" },
+        ({ onboarding: { id } }) => Result.Ok(id),
+      )
+      .with(
+        {
+          __typename: P.union("PublicOnboardingDisabledRejection"),
+        },
+        ({ __typename, message }) =>
+          Result.Error(new CreateOnboardingRejectionError(JSON.stringify({ __typename, message }))),
+      )
+      .exhaustive(),
+  );
 };

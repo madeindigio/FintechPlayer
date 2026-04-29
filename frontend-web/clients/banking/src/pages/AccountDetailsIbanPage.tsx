@@ -214,9 +214,13 @@ export const AccountDetailsIbanPage = ({ accountId, largeBreakpoint }: Props) =>
               <Tile paddingVertical={24}>
                 <LakeText>
                   {formatNestedMessage("accountDetails.updateEmailMention", {
-                    emailAddress: (
-                      <Link to="mailto:support@digio.es" style={styles.partnerColor}>
-                        support@digio.es
+                    link: value => (
+                      <Link
+                        to="https://support.swan.io/hc/requests/new"
+                        style={styles.partnerColor}
+                        target="blank"
+                      >
+                        {value}
                       </Link>
                     ),
                   })}

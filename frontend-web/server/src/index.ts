@@ -1,10 +1,7 @@
-import path from "pathe";
 import pc from "picocolors";
 import { start } from "./app";
 import { env } from "./env";
 import { AccountCountry } from "./graphql/partner";
-
-const keysPath = path.join(__dirname, "../keys");
 
 const countryTranslations: Record<AccountCountry, string> = {
   DEU: "German",
@@ -12,6 +9,7 @@ const countryTranslations: Record<AccountCountry, string> = {
   FRA: "French",
   NLD: "Dutch",
   ITA: "Italian",
+  BEL: "Belgian",
 };
 
 const accountCountries = Object.keys(countryTranslations) as AccountCountry[];
@@ -23,16 +21,7 @@ const onboardingCountries = accountCountries
   }))
   .sort((a, b) => a.name.localeCompare(b.name));
 
-start({
-  mode: env.NODE_ENV,
-  httpsConfig:
-    env.NODE_ENV === "development"
-      ? {
-          key: path.join(keysPath, "_wildcard.swan.local-key.pem"),
-          cert: path.join(keysPath, "_wildcard.swan.local.pem"),
-        }
-      : undefined,
-}).then(
+start({}).then(
   ({ app, ports }) => {
     const listenPort = async (port: string) => {
       // Expose 8080 so that we don't need `sudo` to listen to the port
@@ -49,11 +38,11 @@ start({
 
     ports.forEach(port => void listenPort(port));
 
-    console.log(``);
+    console.log("");
     console.log(`${pc.magenta("swan-partner-frontend")}`);
     console.log(`${pc.white("---")}`);
     console.log(pc.green(`${env.NODE_ENV === "development" ? "dev server" : "server"} started`));
-    console.log(``);
+    console.log("");
     console.log(`${pc.magenta("Banking")} -> ${env.BANKING_URL}`);
     console.log(`${pc.magenta("Onboarding Individual")}`);
     onboardingCountries.forEach(({ cca3, name }) => {
@@ -73,8 +62,8 @@ start({
     });
     console.log(`${pc.magenta("Payment")} -> ${env.PAYMENT_URL}`);
     console.log(`${pc.white("---")}`);
-    console.log(``);
-    console.log(``);
+    console.log("");
+    console.log("");
   },
   err => {
     console.error(err);

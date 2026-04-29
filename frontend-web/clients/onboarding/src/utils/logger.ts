@@ -1,28 +1,74 @@
-import { captureException, init } from "@sentry/browser";
-import { P, match } from "ts-pattern";
+import posthog from "posthog-js";
+import { AccountCountry } from "../graphql/unauthenticated";
 import { env } from "./env";
 
-export const initSentry = () => {
-  init({
-    enabled: import.meta.env.PROD && env.IS_SWAN_MODE,
-    release: env.VERSION,
-    dsn: "https://632023ecffdc437984c7a53bbb3aa7a6@o427297.ingest.sentry.io/5454043",
-    normalizeDepth: 5,
-
-    environment: match({
-      dev: import.meta.env.DEV,
-      url: env.BANKING_URL,
-    })
-      .with({ dev: true }, () => "dev")
-      .with({ url: P.string.includes("master") }, () => "master")
-      .with({ url: P.string.includes("preprod") }, () => "preprod")
-      .otherwise(() => "prod"),
-  });
+type OnboardingInfo = {
+  accountCountry: AccountCountry;
+  projectId: string;
+  onboardingType: "Company" | "Individual";
 };
 
-export const logFrontendError = (exception: Error, extra?: Record<string, unknown>) => {
-  captureException(exception, {
-    extra,
-    tags: { scope: "frontend" },
-  });
+export const registerOnboardingInfo = ({
+  accountCountry,
+  projectId,
+  onboardingType,
+}: OnboardingInfo) => {
+  posthog.register({ accountCountry, projectId, onboardingType });
+};
+
+const replaceIdInPath = (path: string) => {
+  return path
+    .split("/")
+    .map(segment => {
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        segment,
+      );
+      return isUuid ? "<id>" : segment;
+    })
+    .join("/");
+};
+
+export const initPostHog = () => {
+  if (import.meta.env.PROD && env.IS_SWAN_MODE) {
+    const token =
+      import.meta.env.DEV ||
+      env.BANKING_URL.includes("master") ||
+      env.BANKING_URL.includes("preprod")
+        ? "phc_6u4uUv6Mp2a9mw7gOMEH8CiS4UEDlUHGuWlkz2OAYQe"
+        : "phc_y7DlMezh1CgfrVIvkO2fkZMbJcbMziXCZvrPPWR2X8";
+
+    posthog.init(token, {
+      api_host: "https://eu.i.posthog.com",
+      defaults: "2025-05-24",
+      before_send: event => {
+        if (event?.properties.$pathname != null) {
+          event.properties.$pathname = replaceIdInPath(event.properties.$pathname);
+        }
+
+        return event;
+      },
+
+      advanced_enable_surveys: false,
+      enable_recording_console_log: false,
+      disable_conversations: true,
+      disable_external_dependency_loading: true,
+      disable_persistence: true,
+      disable_product_tours: true,
+      disable_scroll_properties: true,
+      disable_session_recording: true,
+      disable_surveys: true,
+      disable_surveys_automatic_display: true,
+      disable_web_experiments: true,
+
+      autocapture: false,
+      capture_heatmaps: false,
+      capture_dead_clicks: false,
+      capture_exceptions: false,
+      capture_performance: false,
+      capture_pageview: true,
+      capture_pageleave: true,
+    });
+
+    posthog.register({ application: "onboarding" });
+  }
 };

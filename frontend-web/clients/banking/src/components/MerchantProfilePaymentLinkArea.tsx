@@ -6,10 +6,10 @@ import { Fill } from "@swan-io/lake/src/components/Fill";
 import { FocusTrapRef } from "@swan-io/lake/src/components/FocusTrap";
 import { FullViewportLayer } from "@swan-io/lake/src/components/FullViewportLayer";
 import { LakeButton } from "@swan-io/lake/src/components/LakeButton";
-import { LakeSearchField } from "@swan-io/lake/src/components/LakeSearchField";
 import { LakeTooltip } from "@swan-io/lake/src/components/LakeTooltip";
 import { ListRightPanel } from "@swan-io/lake/src/components/ListRightPanel";
 import { PlainListViewPlaceholder } from "@swan-io/lake/src/components/PlainListView";
+import { Separator } from "@swan-io/lake/src/components/Separator";
 import { Space } from "@swan-io/lake/src/components/Space";
 import { Toggle } from "@swan-io/lake/src/components/Toggle";
 import { LinkConfig } from "@swan-io/lake/src/components/VirtualizedList";
@@ -26,12 +26,13 @@ import {
 } from "../graphql/partner";
 import { usePermissions } from "../hooks/usePermissions";
 import { t } from "../utils/i18n";
-import { GetRouteParams, Router } from "../utils/routes";
+import { RouteParams, Router } from "../utils/routes";
 import { Connection } from "./Connection";
 import { ErrorView } from "./ErrorView";
 import { MerchantProfilePaymentLinkDetail } from "./MerchantProfilePaymentLinkDetail";
 import { MerchantProfilePaymentLinkNew } from "./MerchantProfilePaymentLinkNew";
 import { MerchantProfilePaymentLinksList } from "./MerchantProfilePaymentLinksList";
+import { SearchInput } from "./SearchInput";
 
 const styles = StyleSheet.create({
   containerMobile: {
@@ -57,7 +58,7 @@ const ALLOWED_PAYMENT_METHODS = new Set<MerchantPaymentMethodType>([
 ]);
 
 type Props = {
-  params: GetRouteParams<"AccountMerchantsProfilePaymentLinkArea">;
+  params: RouteParams<"AccountMerchantsProfilePaymentLinkArea">;
   large: boolean;
 };
 
@@ -85,7 +86,7 @@ export const MerchantProfilePaymentLinkArea = ({ params, large }: Props) => {
     filters,
   });
 
-  const panelRef = useRef<FocusTrapRef | null>(null);
+  const panelRef = useRef<FocusTrapRef>(null);
 
   const onActiveRowChange = useCallback(
     (element: HTMLElement) => panelRef.current?.setInitiallyFocusedElement(element),
@@ -96,13 +97,12 @@ export const MerchantProfilePaymentLinkArea = ({ params, large }: Props) => {
     ({ item }: LinkConfig<PaymentLinkFragment, undefined>) => (
       <Link
         to={Router.AccountMerchantsProfilePaymentLinkDetails({
-          accountMembershipId,
-          merchantProfileId,
+          ...params,
           paymentLinkId: item.id,
         })}
       />
     ),
-    [accountMembershipId, merchantProfileId],
+    [params],
   );
 
   const activePaymentLinkId =
@@ -132,37 +132,12 @@ export const MerchantProfilePaymentLinkArea = ({ params, large }: Props) => {
 
   return (
     <>
-      {canCreateMerchantPaymentLinks && !large ? (
-        <Box style={styles.containerMobile} alignItems="stretch">
-          <LakeTooltip
-            content={t("merchantProfile.paymentLink.button.new.disable")}
-            disabled={shouldEnableNewButton !== false}
-          >
-            <LakeButton
-              disabled={shouldEnableNewButton === false}
-              size="small"
-              icon="add-circle-filled"
-              color="current"
-              onPress={() =>
-                Router.push("AccountMerchantsProfilePaymentLinkList", {
-                  new: "true",
-                  accountMembershipId,
-                  merchantProfileId,
-                })
-              }
-            >
-              {t("merchantProfile.paymentLink.button.new")}
-            </LakeButton>
-          </LakeTooltip>
-        </Box>
-      ) : null}
-
       <Box
         direction="row"
         alignItems="center"
         style={[styles.filters, large && styles.filtersLarge]}
       >
-        {canCreateMerchantPaymentLinks && large ? (
+        {canCreateMerchantPaymentLinks ? (
           <>
             <LakeTooltip
               content={t("merchantProfile.paymentLink.button.new.disable")}
@@ -181,56 +156,57 @@ export const MerchantProfilePaymentLinkArea = ({ params, large }: Props) => {
                   })
                 }
               >
-                {t("merchantProfile.paymentLink.button.new")}
+                {t("common.new")}
               </LakeButton>
             </LakeTooltip>
 
-            <Space width={12} />
+            <Separator horizontal={true} space={12} />
           </>
         ) : null}
 
-        <LakeButton
-          ariaLabel={t("common.refresh")}
-          mode="secondary"
-          size="small"
-          icon="arrow-counterclockwise-filled"
-          loading={isRefreshing}
-          onPress={() => {
-            setIsRefreshing(true);
-            reload().tap(() => setIsRefreshing(false));
-          }}
+        <Toggle
+          compact={!large}
+          value={params.status === "Active" || params.status == null}
+          onToggle={status =>
+            Router.push("AccountMerchantsProfilePaymentLinkList", {
+              ...params,
+              status: status ? "Active" : "Archived",
+            })
+          }
+          labelOn={t("merchantProfile.list.Active")}
+          labelOff={t("merchantProfile.list.Inactive")}
         />
 
         <Fill minWidth={16} />
 
-        <Box direction="row" alignItems="center" justifyContent="end" grow={0} shrink={1}>
-          <Toggle
-            mode={large ? "desktop" : "mobile"}
-            value={params.status === "Active" || params.status == null}
-            onToggle={status =>
-              Router.push("AccountMerchantsProfilePaymentLinkList", {
-                accountMembershipId,
-                merchantProfileId,
-                status: status ? "Active" : "Archived",
-              })
-            }
-            onLabel={t("merchantProfile.list.Active")}
-            offLabel={t("merchantProfile.list.Inactive")}
-          />
+        {large && (
+          <>
+            <LakeButton
+              ariaLabel={t("common.refresh")}
+              mode="secondary"
+              size="small"
+              icon="arrow-counterclockwise-filled"
+              loading={isRefreshing}
+              onPress={() => {
+                setIsRefreshing(true);
+                reload().tap(() => setIsRefreshing(false));
+              }}
+            />
 
-          <Fill minWidth={16} />
+            <Space width={8} />
+          </>
+        )}
 
-          <LakeSearchField
-            initialValue={search ?? ""}
-            placeholder={t("common.search")}
-            onChangeText={search => {
-              Router.replace("AccountMerchantsProfilePaymentLinkList", {
-                ...params,
-                search,
-              });
-            }}
-          />
-        </Box>
+        <SearchInput
+          initialValue={search ?? ""}
+          collapsed={!large}
+          onChangeText={search => {
+            Router.replace("AccountMerchantsProfilePaymentLinkList", {
+              ...params,
+              search,
+            });
+          }}
+        />
       </Box>
 
       <Space height={24} />
@@ -278,8 +254,7 @@ export const MerchantProfilePaymentLinkArea = ({ params, large }: Props) => {
                         paymentLinks={paymentLinks}
                         onPressClose={() =>
                           Router.push("AccountMerchantsProfilePaymentLinkList", {
-                            accountMembershipId,
-                            merchantProfileId,
+                            ...params,
                             new: undefined,
                           })
                         }
@@ -294,17 +269,11 @@ export const MerchantProfilePaymentLinkArea = ({ params, large }: Props) => {
                     activeId={activePaymentLinkId}
                     onActiveIdChange={paymentLinkId =>
                       Router.push("AccountMerchantsProfilePaymentLinkDetails", {
-                        accountMembershipId,
-                        merchantProfileId,
+                        ...params,
                         paymentLinkId,
                       })
                     }
-                    onClose={() =>
-                      Router.push("AccountMerchantsProfilePaymentLinkList", {
-                        accountMembershipId,
-                        merchantProfileId,
-                      })
-                    }
+                    onClose={() => Router.push("AccountMerchantsProfilePaymentLinkList", params)}
                     items={paymentLinks?.edges.map(item => item.node) ?? []}
                     render={(item, large) => (
                       <MerchantProfilePaymentLinkDetail large={large} paymentLinkId={item.id} />

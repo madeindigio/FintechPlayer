@@ -1,5 +1,6 @@
 import "@swan-io/lake/src/assets/fonts/Inter.css";
 import "@swan-io/lake/src/assets/main.css";
+import "./utils/tracing";
 
 import { ResizeObserver } from "@juggle/resize-observer";
 import "core-js/proposals/array-flat-map";
@@ -17,14 +18,14 @@ import { isNullish } from "@swan-io/lake/src/utils/nullish";
 import { AppRegistry } from "react-native";
 import { match } from "ts-pattern";
 import { App } from "./App";
-import { initSentry } from "./utils/logger";
+import { initPostHog } from "./utils/logger";
 import { projectConfiguration } from "./utils/projectId";
 
 if (isNullish(window.ResizeObserver)) {
   window.ResizeObserver = ResizeObserver;
 }
 
-initSentry();
+initPostHog();
 
 const rootTag = document.getElementById("app-root");
 
@@ -33,9 +34,7 @@ match(projectConfiguration)
     const url = new URL(window.location.href);
     const [...envHostName] = url.hostname.split(".");
     url.hostname = ["partner", ...envHostName].join(".");
-    if (!url.pathname.startsWith("/swanpopupcallback")) {
-      url.pathname = "/";
-    }
+    url.pathname = "/";
     // local dev tweak
     if (url.port === "8082") {
       url.port = "8080";

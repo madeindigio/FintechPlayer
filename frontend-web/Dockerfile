@@ -1,22 +1,13 @@
-FROM node:22-bullseye AS builder
+FROM node:24 AS builder
 WORKDIR /app
-ADD . .
+ADD ./server/ ./
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
-RUN corepack enable
+RUN npm install -g pnpm@latest-10
 RUN pnpm install --no-frozen-lockfile
-RUN pnpm build
 
-FROM node:22-bullseye-slim
-WORKDIR /home/node/app
-
-RUN apt-get update && apt-get install -y --no-install-recommends dumb-init
-
-USER node
-
-COPY --from=builder --chown=node /app/node_modules ./node_modules
-COPY --chown=node:node --from=builder /app/server/dist .
-COPY --from=builder --chown=node /app/package.json /home/node
-
-CMD ["dumb-init", "node", "index.js"]
+FROM node:24
+WORKDIR /app
+COPY --chown=node:node --from=builder /app ./
+CMD ["npm", "start"]
 EXPOSE 8080

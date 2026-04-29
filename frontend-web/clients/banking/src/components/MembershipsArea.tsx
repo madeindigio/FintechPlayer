@@ -1,6 +1,6 @@
 import { Option } from "@swan-io/boxed";
 import { Link } from "@swan-io/chicane";
-import { useDeferredQuery, useQuery } from "@swan-io/graphql-client";
+import { useDeferredQuery, useMutation, useQuery } from "@swan-io/graphql-client";
 import { Box } from "@swan-io/lake/src/components/Box";
 import { FocusTrapRef } from "@swan-io/lake/src/components/FocusTrap";
 import { LakeButton } from "@swan-io/lake/src/components/LakeButton";
@@ -16,6 +16,7 @@ import { Request } from "@swan-io/request";
 import { LakeModal } from "@swan-io/shared-business/src/components/LakeModal";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { StyleSheet, View } from "react-native";
+import { useFlag } from "react-tggl-client";
 import { P, isMatching, match } from "ts-pattern";
 import { Except } from "type-fest";
 import {
@@ -23,17 +24,23 @@ import {
   AccountMembershipFragment,
   MembersPageDocument,
   MembershipDetailDocument,
+  SendAccountMembershipInviteNotificationDocument,
 } from "../graphql/partner";
 import { usePermissions } from "../hooks/usePermissions";
 import { locale, t } from "../utils/i18n";
 import { projectConfiguration } from "../utils/projectId";
-import { GetRouteParams, Router, membershipsRoutes } from "../utils/routes";
+import { RouteParams, Router, membershipsRoutes } from "../utils/routes";
 import { Connection } from "./Connection";
 import { ErrorView } from "./ErrorView";
 import { MembershipDetailArea } from "./MembershipDetailArea";
 import { MembershipInvitationLinkModal } from "./MembershipInvitationLinkModal";
 import { MembershipList } from "./MembershipList";
-import { MembershipFilters, MembershipListFilter, parseBooleanParam } from "./MembershipListFilter";
+import {
+  MembershipFilters,
+  MembershipListFilter,
+  booleanParamToBoolean,
+  parseBooleanParam,
+} from "./MembershipListFilter";
 import { NewMembershipWizard } from "./NewMembershipWizard";
 
 const styles = StyleSheet.create({
@@ -55,7 +62,7 @@ type Props = {
   accountId: string;
   accountCountry: AccountCountry;
   shouldDisplayIdVerification: boolean;
-  params: Except<GetRouteParams<"AccountMembersArea">, "accountMembershipId">;
+  params: Except<RouteParams<"AccountMembersArea">, "accountMembershipId">;
   currentUserAccountMembership: AccountMembershipFragment;
   onAccountMembershipUpdate: () => void;
 };
@@ -75,8 +82,13 @@ export const MembershipsArea = ({
   const [, { query: queryLastCreatedMembership }] = useDeferredQuery(MembershipDetailDocument);
   const route = Router.useRoute(membershipsRoutes);
 
-  const filters = useMemo<MembershipFilters>(
-    () => ({
+  const canUseNotificationStack = useFlag("useNotificationStackToSendNewMembershipEmail", false);
+
+  const [sendAccountMembershipInviteNotification] = useMutation(
+    SendAccountMembershipInviteNotificationDocument,
+  );
+  const filters = useMemo(
+    (): MembershipFilters => ({
       statuses: params.statuses?.filter(
         isMatching(P.union("BindingUserError", "Enabled", "InvitationSent", "Suspended")),
       ),
@@ -86,14 +98,7 @@ export const MembershipsArea = ({
       canManageAccountMembership: parseBooleanParam(params.canManageAccountMembership),
       canManageBeneficiaries: parseBooleanParam(params.canManageBeneficiaries),
     }),
-    [
-      params.statuses,
-      params.canViewAccount,
-      params.canManageCards,
-      params.canInitiatePayments,
-      params.canManageAccountMembership,
-      params.canManageBeneficiaries,
-    ],
+    [params],
   );
 
   const search = nullishOrEmptyToUndefined(params.search);
@@ -110,11 +115,11 @@ export const MembershipsArea = ({
         "Suspended" as const,
       ])
       .otherwise(() => filters.statuses),
-    canViewAccount: filters.canViewAccount,
-    canManageCards: filters.canManageCards,
-    canInitiatePayments: filters.canInitiatePayments,
-    canManageAccountMembership: filters.canManageAccountMembership,
-    canManageBeneficiaries: filters.canManageBeneficiaries,
+    canViewAccount: booleanParamToBoolean(filters.canViewAccount),
+    canManageCards: booleanParamToBoolean(filters.canManageCards),
+    canInitiatePayments: booleanParamToBoolean(filters.canInitiatePayments),
+    canManageAccountMembership: booleanParamToBoolean(filters.canManageAccountMembership),
+    canManageBeneficiaries: booleanParamToBoolean(filters.canManageBeneficiaries),
   });
 
   const editingAccountMembershipId = match(route)
@@ -124,7 +129,7 @@ export const MembershipsArea = ({
     )
     .otherwise(() => null);
 
-  const panelRef = useRef<FocusTrapRef | null>(null);
+  const panelRef = useRef<FocusTrapRef>(null);
 
   const onActiveRowChange = useCallback(
     (element: HTMLElement) => panelRef.current?.setInitiallyFocusedElement(element),
@@ -156,35 +161,47 @@ export const MembershipsArea = ({
         },
         ({ params: { resourceId } }) => {
           queryLastCreatedMembership({ accountMembershipId: resourceId }).tapOk(membership => {
-            const query = new URLSearchParams();
-
-            query.append("inviterAccountMembershipId", accountMembershipId);
-            query.append("lang", membership.accountMembership?.language ?? locale.language);
-
-            const url = match(projectConfiguration)
-              .with(
-                Option.P.Some({ projectId: P.select(), mode: "MultiProject" }),
-                projectId =>
-                  `/api/projects/${projectId}/invitation/${resourceId}/send?${query.toString()}`,
-              )
-              .otherwise(() => `/api/invitation/${resourceId}/send?${query.toString()}`);
-
-            Request.make({
-              url,
-              method: "POST",
-            }).tap(() => {
-              Router.replace("AccountMembersList", {
-                ...params,
-                accountMembershipId,
-                resourceId: undefined,
-                status: undefined,
+            if (canUseNotificationStack) {
+              sendAccountMembershipInviteNotification({
+                input: { accountMembershipId: resourceId },
               });
-            });
+            } else {
+              const query = new URLSearchParams();
+              query.append("inviterAccountMembershipId", accountMembershipId);
+              query.append("lang", membership.accountMembership?.language ?? locale.language);
+
+              const url = match(projectConfiguration)
+                .with(
+                  Option.P.Some({ projectId: P.select(), mode: "MultiProject" }),
+                  projectId =>
+                    `/api/projects/${projectId}/invitation/${resourceId}/send?${query.toString()}`,
+                )
+                .otherwise(() => `/api/invitation/${resourceId}/send?${query.toString()}`);
+
+              Request.make({
+                url,
+                method: "POST",
+                type: "text",
+              }).tap(() => {
+                Router.replace("AccountMembersList", {
+                  ...params,
+                  accountMembershipId,
+                  resourceId: undefined,
+                  status: undefined,
+                });
+              });
+            }
           });
         },
       )
       .otherwise(() => {});
-  }, [params, accountMembershipId, queryLastCreatedMembership]);
+  }, [
+    params,
+    accountMembershipId,
+    queryLastCreatedMembership,
+    canUseNotificationStack,
+    sendAccountMembershipInviteNotification,
+  ]);
 
   return (
     <ResponsiveContainer breakpoint={breakpoints.large} style={styles.root}>
@@ -200,18 +217,13 @@ export const MembershipsArea = ({
                     accountMembershipId,
                     ...params,
                     ...filters,
-                    canViewAccount: String(filters.canViewAccount),
-                    canManageCards: String(filters.canManageCards),
-                    canInitiatePayments: String(filters.canInitiatePayments),
-                    canManageAccountMembership: String(filters.canManageAccountMembership),
-                    canManageBeneficiaries: String(filters.canManageBeneficiaries),
                   });
                 }}
                 onChangeSearch={search => {
                   Router.replace("AccountMembersList", { accountMembershipId, ...params, search });
                 }}
                 onRefresh={reload}
-                totalCount={data.mapOk(data => data.account?.memberships.totalCount ?? 0)}
+                totalCount={data.mapOk(data => data.accountMemberships.totalCount ?? 0)}
                 large={large}
               >
                 {canAddAccountMembership ? (
@@ -223,7 +235,7 @@ export const MembershipsArea = ({
                       Router.push("AccountMembersList", { accountMembershipId, new: "" })
                     }
                   >
-                    {t("common.new")}
+                    {large ? t("common.new") : null}
                   </LakeButton>
                 ) : null}
               </MembershipListFilter>
@@ -237,8 +249,8 @@ export const MembershipsArea = ({
               Done: result =>
                 result.match({
                   Error: error => <ErrorView error={error} />,
-                  Ok: ({ account }) => (
-                    <Connection connection={account?.memberships}>
+                  Ok: ({ accountMemberships }) => (
+                    <Connection connection={accountMemberships}>
                       {memberships => {
                         return (
                           <>

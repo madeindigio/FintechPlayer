@@ -38,12 +38,16 @@ type Props = {
 };
 
 const companyTypesPerCountry: Partial<Record<CountryCCA3, string>> = {
-  BEL: "(SA, SPRL, SRL, SCRIS, SNC, SCS, GIE)",
-  DEU: "(z.B. GmbH, UG, KG, GbR)",
+  BEL: "(BV, SRL, NV, SA, VOF, SNC, CommV, SCS, CV, SC)",
+  DEU: "(z.B. GmbH, UG, KG, eGbR)",
   FRA: "(SA, SARL, SAS, SCI…)",
-  ITA: "(SS, SRL, SPA, SNC, SAS…)",
+  ITA: "(SS, SRL, SPA, SNC, SAS, Cooperativa…)",
   LUX: "(SA, SCS, SARLI, SNC, SCA, SC)",
   NLD: "(BV, NV, VOF…)",
+};
+
+const selfEmployedTypesPerCountry: Partial<Record<CountryCCA3, string>> = {
+  DEU: "(z.B. e.K., Freiberufler)",
 };
 
 const coOwnershipTypesPerCountry: Partial<Record<CountryCCA3, string>> = {
@@ -84,7 +88,10 @@ const getCompanyTypes = (country: CountryCCA3): RadioGroupItem<CompanyType>[] =>
 
   items.push(
     {
-      name: country === "FRA" ? t("companyType.selfEmployed.FRA") : t("companyType.selfEmployed"),
+      name:
+        country === "FRA"
+          ? t("companyType.selfEmployed.FRA")
+          : `${t("companyType.selfEmployed")} ${selfEmployedTypesPerCountry[country] ?? ""}`,
       value: "SelfEmployed",
     },
     { name: t("companyType.other"), value: "Other" },

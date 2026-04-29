@@ -136,9 +136,10 @@ const RecurringTransferHistory = ({
                 {payments => {
                   const transactions = (payments?.edges ?? [])
                     .filter(({ node }) => Boolean(node.transactions?.totalCount))
-                    .reduce<
-                      { node: TransactionDetailsFragment }[]
-                    >((list, { node }) => [...list, ...(node.transactions?.edges ?? [])], []);
+                    .reduce<{ node: TransactionDetailsFragment }[]>((list, { node }) => {
+                      list.concat(node.transactions?.edges ?? []);
+                      return list;
+                    }, []);
 
                   return (
                     <RightPanelTransactionList
@@ -638,27 +639,29 @@ export const RecurringTransferList = ({ accountId, accountMembershipId, large }:
         alignItems="center"
         style={[styles.filters, large && styles.filtersDesktop]}
       >
-        <LakeButton
-          ariaLabel={t("common.refresh")}
-          mode="secondary"
-          size="small"
-          icon="arrow-counterclockwise-filled"
-          loading={isRefreshing}
-          onPress={() => {
-            setIsRefreshing(true);
-            reload().tap(() => setIsRefreshing(false));
-          }}
-        />
-
-        <Fill minWidth={24} />
-
         <Toggle
-          mode={large ? "desktop" : "mobile"}
+          compact={!large}
           value={!canceled}
           onToggle={value => setCanceled(!value)}
-          onLabel={t("recurringTransfer.filters.status.active")}
-          offLabel={t("recurringTransfer.filters.status.canceled")}
+          labelOn={t("recurringTransfer.filters.status.active")}
+          labelOff={t("recurringTransfer.filters.status.canceled")}
         />
+
+        <Fill minWidth={16} />
+
+        {large && (
+          <LakeButton
+            ariaLabel={t("common.refresh")}
+            mode="secondary"
+            size="small"
+            icon="arrow-counterclockwise-filled"
+            loading={isRefreshing}
+            onPress={() => {
+              setIsRefreshing(true);
+              reload().tap(() => setIsRefreshing(false));
+            }}
+          />
+        )}
       </Box>
 
       <Space height={24} />

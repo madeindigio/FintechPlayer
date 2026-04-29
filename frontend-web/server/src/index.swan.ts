@@ -5,14 +5,20 @@
  * including specifics such as the slightly different token logic &
  * invitation emails.
  */
-import { Future, Result } from "@swan-io/boxed";
+import { Future, Option, Result } from "@swan-io/boxed";
 import Mailjet from "node-mailjet";
-import path from "pathe";
 import pc from "picocolors";
 import { P, match } from "ts-pattern";
 import { string, validate, url as validateUrl } from "valienv";
 import { exchangeToken } from "./api/oauth2.swan";
-import { UnsupportedAccountCountryError, parseAccountCountry } from "./api/partner";
+import {
+  UnsupportedAccountCountryError,
+  createPublicCompanyAccountHolderOnboarding,
+  createPublicIndividualAccountHolderOnboarding,
+  parseAccountCountry,
+  sdk,
+  toFuture,
+} from "./api/partner";
 import { getAccountMembershipInvitationData } from "./api/partner.swan";
 import {
   OnboardingRejectionError,
@@ -23,8 +29,12 @@ import { InvitationConfig, start } from "./app";
 import { env } from "./env";
 import { replyWithError } from "./error";
 import { AccountCountry, GetAccountMembershipInvitationDataQuery } from "./graphql/partner";
-
-const keysPath = path.join(__dirname, "../keys");
+import { getCalledMutations } from "./utils/gql";
+import {
+  isMutationAuthorizedInWebBanking,
+  isMutationRestrictedByWebBankingSettings,
+} from "./utils/permissions";
+import { getTgglClient } from "./utils/tggl";
 
 const countryTranslations: Record<AccountCountry, string> = {
   DEU: "German",
@@ -32,6 +42,7 @@ const countryTranslations: Record<AccountCountry, string> = {
   FRA: "French",
   NLD: "Dutch",
   ITA: "Italian",
+  BEL: "Belgian",
 };
 
 const accountCountries = Object.keys(countryTranslations) as AccountCountry[];
@@ -184,35 +195,80 @@ if (env.NODE_ENV === "development") {
 }
 
 start({
-  mode: env.NODE_ENV,
-  httpsConfig:
-    env.NODE_ENV === "development"
-      ? {
-          key: path.join(keysPath, "_wildcard.swan.local-key.pem"),
-          cert: path.join(keysPath, "_wildcard.swan.local.pem"),
-        }
-      : undefined,
-  sendAccountMembershipInvitation,
   allowedCorsOrigins: [partnerPickerUrl.origin],
+  sendAccountMembershipInvitation,
 }).then(
   ({ app, ports }) => {
     app.post<{ Params: { projectId: string } }>(
       "/api/projects/:projectId/partner",
       async (request, reply) => {
-        if (request.accessToken == undefined) {
-          return reply.status(401).send("Unauthorized");
+        const isLive = env.OAUTH_CLIENT_ID.startsWith("LIVE_");
+        if (isLive) {
+          const disabled = getTgglClient(request.params.projectId).get("disableWebBanking", false);
+          if (disabled) {
+            request.log.warn(
+              `User from project ${request.params.projectId} attempted to access web-banking partner API`,
+            );
+            return reply.status(401).send("Unauthorized");
+          }
         }
-        const projectUserToken = await exchangeToken(request.accessToken, {
-          type: "AccountMemberToken",
-          projectId: request.params.projectId,
-        }).tapError(error => {
-          request.log.error(error);
-        });
+
+        const projectUserToken =
+          request.accessToken == null
+            ? Result.Ok(Option.None())
+            : await exchangeToken(request.accessToken, {
+                type: "AccountMemberToken",
+                projectId: request.params.projectId,
+              })
+                .mapOk(token => Option.Some(token))
+                .tapError(error => {
+                  request.log.error(error, "Failed to exchange token for partner API");
+                });
+
+        const calledMutations = match(request.body)
+          .with({ query: P.string }, ({ query }) => getCalledMutations(query))
+          .otherwise(() => []);
+
+        // if at least one mutation is restricted by web banking settings
+        // we need to fetch the settings and check if the mutation is authorized
+        if (calledMutations.some(isMutationRestrictedByWebBankingSettings)) {
+          const webBankingSettings = await toFuture(
+            sdk.WebBankingSettings(
+              {},
+              match(projectUserToken)
+                .with(Result.P.Ok(Option.P.Some(P.select())), token => ({
+                  "x-swan-token": `Bearer ${token}`,
+                }))
+                .otherwise(() => ({})),
+            ),
+          ).mapOkToResult(({ projectInfo }) =>
+            projectInfo.webBankingSettings != null
+              ? Result.Ok(projectInfo.webBankingSettings)
+              : Result.Error(new Error("Web banking settings not found")),
+          );
+
+          if (webBankingSettings.isError()) {
+            request.log.error(webBankingSettings.error, "Failed to fetch web banking settings");
+            return reply.internalServerError();
+          }
+
+          const isAuthorized = calledMutations
+            .filter(isMutationRestrictedByWebBankingSettings)
+            .every(mutationName =>
+              isMutationAuthorizedInWebBanking(mutationName, webBankingSettings.value),
+            );
+
+          if (!isAuthorized) {
+            request.log.warn(calledMutations, "Unauthorized mutation attempted");
+            return reply.forbidden();
+          }
+        }
+
         return reply.from(env.PARTNER_API_URL, {
           rewriteRequestHeaders: (_req, headers) => ({
             ...headers,
             ...match(projectUserToken)
-              .with(Result.P.Ok(P.select()), token => ({
+              .with(Result.P.Ok(Option.P.Some(P.select())), token => ({
                 "x-swan-token": `Bearer ${token}`,
               }))
               .otherwise(() => null),
@@ -224,14 +280,25 @@ start({
     app.post<{ Params: { projectId: string } }>(
       "/api/projects/:projectId/partner-admin",
       async (request, reply) => {
-        if (request.accessToken == undefined) {
+        const isLive = env.OAUTH_CLIENT_ID.startsWith("LIVE_");
+        if (isLive) {
+          const disabled = getTgglClient(request.params.projectId).get("disableWebBanking", false);
+          if (disabled) {
+            request.log.warn(
+              `User from project ${request.params.projectId} attempted to access web-banking partner-admin API`,
+            );
+            return reply.status(401).send("Unauthorized");
+          }
+        }
+
+        if (request.accessToken == null) {
           return reply.status(401).send("Unauthorized");
         }
         const projectUserToken = await exchangeToken(request.accessToken, {
           type: "AccountMemberToken",
           projectId: request.params.projectId,
         }).tapError(error => {
-          request.log.error(error);
+          request.log.error(error, "Failed to exchange token for partner API");
         });
         return reply.from(env.PARTNER_ADMIN_API_URL, {
           rewriteRequestHeaders: (_req, headers) => ({
@@ -261,7 +328,7 @@ start({
         if (inviterAccountMembershipId == null) {
           return reply.status(400).send("Missing inviterAccountMembershipId");
         }
-        if (request.accessToken == undefined) {
+        if (request.accessToken == null) {
           return reply.status(401).send("Unauthorized");
         }
         try {
@@ -282,7 +349,7 @@ start({
             .resultToPromise();
           return reply.send({ success: result });
         } catch (err) {
-          request.log.error(err);
+          request.log.error(err, "Failed to send account membership invitation");
           return reply.status(400).send("An error occured");
         }
       },
@@ -313,23 +380,30 @@ start({
       "/projects/:projectId/onboarding/individual/start",
       async (request, reply) => {
         const accountCountry = parseAccountCountry(request.query.accountCountry);
+        const projectId = request.params.projectId;
+        const isOnboardingV2 = request.query.v2 === "true";
+
         return Future.value(accountCountry)
-          .flatMapOk(accountCountry =>
-            onboardIndividualAccountHolder({ accountCountry, projectId: request.params.projectId }),
-          )
+          .flatMapOk(accountCountry => {
+            if (isOnboardingV2) {
+              return createPublicIndividualAccountHolderOnboarding({
+                accountCountry,
+                projectId,
+              });
+            }
+            return onboardIndividualAccountHolder({ accountCountry, projectId });
+          })
           .tapOk(onboardingId => {
             return reply
-              .header("cache-control", `private, max-age=0`)
-              .redirect(
-                `${env.ONBOARDING_URL}/projects/${request.params.projectId}/onboardings/${onboardingId}`,
-              );
+              .header("cache-control", "private, max-age=0")
+              .redirect(`${env.ONBOARDING_URL}/projects/${projectId}/onboardings/${onboardingId}`);
           })
           .tapError(error => {
             match(error)
               .with(
                 P.instanceOf(UnsupportedAccountCountryError),
                 P.instanceOf(OnboardingRejectionError),
-                error => request.log.warn(error),
+                error => request.log.warn(error, "Failed to start individual onboarding"),
               )
               .otherwise(error => request.log.error(error));
 
@@ -350,23 +424,27 @@ start({
       "/projects/:projectId/onboarding/company/start",
       async (request, reply) => {
         const accountCountry = parseAccountCountry(request.query.accountCountry);
+        const projectId = request.params.projectId;
+        const isOnboardingV2 = request.query.v2 === "true";
+
         return Future.value(accountCountry)
-          .flatMapOk(accountCountry =>
-            onboardCompanyAccountHolder({ accountCountry, projectId: request.params.projectId }),
-          )
+          .flatMapOk(accountCountry => {
+            if (isOnboardingV2) {
+              return createPublicCompanyAccountHolderOnboarding({ accountCountry, projectId });
+            }
+            return onboardCompanyAccountHolder({ accountCountry, projectId });
+          })
           .tapOk(onboardingId => {
             return reply
-              .header("cache-control", `private, max-age=0`)
-              .redirect(
-                `${env.ONBOARDING_URL}/projects/${request.params.projectId}/onboardings/${onboardingId}`,
-              );
+              .header("cache-control", "private, max-age=0")
+              .redirect(`${env.ONBOARDING_URL}/projects/${projectId}/onboardings/${onboardingId}`);
           })
           .tapError(error => {
             match(error)
               .with(
                 P.instanceOf(UnsupportedAccountCountryError),
                 P.instanceOf(OnboardingRejectionError),
-                error => request.log.warn(error),
+                error => request.log.warn(error, "Failed to start company onboarding"),
               )
               .otherwise(error => request.log.error(error));
 
@@ -394,11 +472,11 @@ start({
 
     ports.forEach(port => void listenPort(port));
 
-    console.log(``);
+    console.log("");
     console.log(`${pc.magenta("swan-partner-frontend")}`);
     console.log(`${pc.white("---")}`);
     console.log(pc.green(`${env.NODE_ENV === "development" ? "dev server" : "server"} started`));
-    console.log(``);
+    console.log("");
     console.log(`${pc.magenta("Banking")} -> ${env.BANKING_URL}`);
     console.log(`${pc.magenta("Onboarding Individual")}`);
     onboardingCountries.forEach(({ cca3, name }) => {
@@ -418,8 +496,8 @@ start({
     });
     console.log(`${pc.magenta("Payment")} -> ${env.PAYMENT_URL}`);
     console.log(`${pc.white("---")}`);
-    console.log(``);
-    console.log(``);
+    console.log("");
+    console.log("");
   },
   err => {
     console.error(err);

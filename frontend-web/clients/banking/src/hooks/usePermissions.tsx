@@ -158,6 +158,9 @@ const PERMISSIONS_MATRIX = {
       canManageBeneficiaries: true,
       statusInfo: { status: ENABLED },
     },
+    settings: {
+      canInitiatePaymentsToNewBeneficiaries: true,
+    },
   },
   canReadCard: P.union(
     // User can read card list if they have at least one
@@ -224,16 +227,31 @@ const PERMISSIONS_MATRIX = {
       canManageCards: true,
       statusInfo: { status: ENABLED },
     },
+    settings: {
+      canUpdateCards: true,
+    },
+  },
+  canResumePhysicalCard: {
+    accountMembership: {
+      // no need to be able to manage cards to resume physical card
+      // can be resumed by the cardholder themself
+      statusInfo: { status: ENABLED },
+    },
+    settings: {
+      canUpdateCards: true,
+    },
   },
   canCancelCardForOtherMembership: {
     accountMembership: {
       canManageAccountMembership: true,
       statusInfo: { status: ENABLED },
     },
+    settings: {
+      canUpdateCards: true,
+    },
   },
   canReadAccountMembership: {
     accountMembership: {
-      canViewAccount: true,
       canManageAccountMembership: true,
       statusInfo: { status: ENABLED_OR_BINDING_USER_ERROR },
     },
@@ -243,7 +261,6 @@ const PERMISSIONS_MATRIX = {
   },
   canAddAccountMembership: {
     accountMembership: {
-      canViewAccount: true,
       canManageAccountMembership: true,
       statusInfo: { status: ENABLED },
     },
@@ -253,7 +270,6 @@ const PERMISSIONS_MATRIX = {
   },
   canUpdateAccountMembership: {
     accountMembership: {
-      canViewAccount: true,
       canManageAccountMembership: true,
       statusInfo: { status: ENABLED },
     },
@@ -379,7 +395,7 @@ export const getPermissionMatrix = (data: {
   settings: WebBankingSettingsFragment | null | undefined;
 }) =>
   Dict.fromEntries(
-    Dict.entries(PERMISSIONS_MATRIX).map(([key, pattern]) => [key, isMatching(pattern, data)]),
+    Dict.entries(PERMISSIONS_MATRIX).map(([key, pattern]) => [key, isMatching(pattern)(data)]),
   ) as PermissionMatrix;
 
 type Input = Option<{

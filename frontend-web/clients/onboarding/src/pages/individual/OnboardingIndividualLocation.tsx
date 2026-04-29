@@ -13,6 +13,7 @@ import { trim } from "@swan-io/lake/src/utils/string";
 import { PlacekitAddressSearchInput } from "@swan-io/shared-business/src/components/PlacekitAddressSearchInput";
 import { CountryCCA3, individualCountries } from "@swan-io/shared-business/src/constants/countries";
 import { showToast } from "@swan-io/shared-business/src/state/toasts";
+import { validateRequired } from "@swan-io/shared-business/src/utils/validation";
 import { useForm } from "@swan-io/use-form";
 import { useEffect } from "react";
 import { match } from "ts-pattern";
@@ -28,7 +29,6 @@ import {
   ServerInvalidFieldCode,
   extractServerValidationErrors,
   getValidationErrorMessage,
-  validateRequired,
 } from "../../utils/validation";
 
 export type LocationFieldName = "country" | "city" | "address" | "postalCode";
@@ -149,7 +149,7 @@ export const OnboardingIndividualLocation = ({
         <ResponsiveContainer breakpoint={breakpoints.medium}>
           {({ small }) => (
             <>
-              <StepTitle isMobile={small}>{t("individual.step.location.title")}</StepTitle>
+              <StepTitle>{t("individual.step.location.title")}</StepTitle>
               <Space height={small ? 24 : 32} />
 
               <Tile>
@@ -188,7 +188,7 @@ export const OnboardingIndividualLocation = ({
                               }}
                               language={locale.language}
                               placeholder={t("addressInput.placeholder")}
-                              emptyResultText={t("common.noResult")}
+                              emptyResult={t("common.noResult")}
                               error={error}
                             />
                           )}

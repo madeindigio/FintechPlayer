@@ -14,7 +14,9 @@ import { LakeModal } from "@swan-io/shared-business/src/components/LakeModal";
 import { showToast } from "@swan-io/shared-business/src/state/toasts";
 import { translateError } from "@swan-io/shared-business/src/utils/i18n";
 import { useForm } from "@swan-io/use-form";
+import { useRef } from "react";
 import { StyleSheet, View } from "react-native";
+import { match } from "ts-pattern";
 import {
   RequestMerchantPaymentMethodsDocument,
   RequestMerchantPaymentMethodsUpdateDocument,
@@ -82,6 +84,73 @@ export const MerchantProfilePaymentMethodCardRequestModal = ({
 
         <LakeText variant="regular" color={colors.gray[500]}>
           {t("merchantProfile.settings.paymentMethods.card.description")}
+        </LakeText>
+
+        <Space height={24} />
+
+        <LakeText variant="smallRegular" color={colors.gray[600]}>
+          {t("merchantProfile.settings.paymentMethods.swanReview")}
+        </LakeText>
+
+        <Space height={8} />
+
+        <LakeButtonGroup paddingBottom={0}>
+          <LakeButton
+            grow={true}
+            mode="primary"
+            color="current"
+            loading={merchantPaymentMethodRequest.isLoading()}
+            onPress={onPressSubmit}
+          >
+            {t("merchantProfile.settings.paymentMethods.request")}
+          </LakeButton>
+        </LakeButtonGroup>
+      </View>
+    </LakeModal>
+  );
+};
+
+export const MerchantProfilePaymentMethodInPersonCardRequestModal = ({
+  merchantProfileId,
+  visible,
+  onPressClose,
+  onSuccess,
+}: Props) => {
+  const [requestMerchantPaymentMethods, merchantPaymentMethodRequest] = useMutation(
+    RequestMerchantPaymentMethodsDocument,
+  );
+
+  const onPressSubmit = () => {
+    requestMerchantPaymentMethods({
+      input: {
+        merchantProfileId,
+        inPersonCard: {
+          activate: true,
+        },
+      },
+    })
+      .mapOkToResult(data =>
+        Option.fromNullable(data.requestMerchantPaymentMethods).toResult("No data"),
+      )
+      .mapOkToResult(filterRejectionsToResult)
+      .tapError(error => {
+        showToast({ variant: "error", title: translateError(error), error });
+      })
+      .tapOk(onSuccess);
+  };
+
+  return (
+    <LakeModal visible={visible} onPressClose={onPressClose}>
+      <View style={styles.modalContents}>
+        <Icon size={42} name="payment-regular" color={colors.gray[900]} />
+        <Space height={12} />
+
+        <LakeText variant="medium" color={colors.gray[900]}>
+          {t("merchantProfile.settings.paymentMethods.inPersonCard.title")}
+        </LakeText>
+
+        <LakeText variant="regular" color={colors.gray[500]}>
+          {t("merchantProfile.settings.paymentMethods.inPersonCard.description")}
         </LakeText>
 
         <Space height={24} />
@@ -252,6 +321,10 @@ export const MerchantProfilePaymentMethodSepaDirectDebitB2BRequestModal = ({
     RequestMerchantPaymentMethodsDocument,
   );
 
+  // This is used to display mutation validation errors in the form even if the front-end validation passes
+  // To keep the error message visible until the user submits again
+  const mutationValidationMessage = useRef<string | null>(null);
+
   const { Field, submitForm } = useForm({
     useSwanSepaCreditorIdentifier: {
       initialValue: true,
@@ -267,6 +340,8 @@ export const MerchantProfilePaymentMethodSepaDirectDebitB2BRequestModal = ({
   });
 
   const onPressSubmit = () => {
+    mutationValidationMessage.current = null;
+
     submitForm({
       onSuccess: values =>
         requestMerchantPaymentMethods({
@@ -284,7 +359,26 @@ export const MerchantProfilePaymentMethodSepaDirectDebitB2BRequestModal = ({
           )
           .mapOkToResult(filterRejectionsToResult)
           .tapError(error => {
-            showToast({ variant: "error", title: translateError(error), error });
+            match(error)
+              .with(
+                {
+                  __typename: "ValidationRejection",
+                  fields: [
+                    {
+                      path: ["sepaDirectDebitB2B", "sepaCreditorIdentifier"],
+                      code: "InvalidString",
+                    },
+                  ],
+                },
+                () => {
+                  mutationValidationMessage.current = t(
+                    "merchantProfile.settings.paymentMethods.sepaDirectDebitB2B.invalidCreditorIdentifier",
+                  );
+                },
+              )
+              .otherwise(() => {
+                showToast({ variant: "error", title: translateError(error), error });
+              });
           })
           .tapOk(onSuccess),
     });
@@ -344,7 +438,7 @@ export const MerchantProfilePaymentMethodSepaDirectDebitB2BRequestModal = ({
                           <LakeTextInput
                             value={value}
                             onChangeText={onChange}
-                            error={error}
+                            error={mutationValidationMessage.current ?? error ?? undefined}
                             valid={valid}
                             ref={ref}
                             autoFocus={true}
@@ -387,6 +481,10 @@ export const MerchantProfilePaymentMethodSepaDirectDebitCoreRequestModal = ({
     RequestMerchantPaymentMethodsDocument,
   );
 
+  // This is used to display mutation validation errors in the form even if the front-end validation passes
+  // To keep the error message visible until the user submits again
+  const mutationValidationMessage = useRef<string | null>(null);
+
   const { Field, submitForm } = useForm({
     useSwanSepaCreditorIdentifier: {
       initialValue: true,
@@ -402,6 +500,8 @@ export const MerchantProfilePaymentMethodSepaDirectDebitCoreRequestModal = ({
   });
 
   const onPressSubmit = () => {
+    mutationValidationMessage.current = null;
+
     submitForm({
       onSuccess: values =>
         requestMerchantPaymentMethods({
@@ -419,7 +519,26 @@ export const MerchantProfilePaymentMethodSepaDirectDebitCoreRequestModal = ({
           )
           .mapOkToResult(filterRejectionsToResult)
           .tapError(error => {
-            showToast({ variant: "error", title: translateError(error), error });
+            match(error)
+              .with(
+                {
+                  __typename: "ValidationRejection",
+                  fields: [
+                    {
+                      path: ["sepaDirectDebitCore", "sepaCreditorIdentifier"],
+                      code: "InvalidString",
+                    },
+                  ],
+                },
+                () => {
+                  mutationValidationMessage.current = t(
+                    "merchantProfile.settings.paymentMethods.sepaDirectDebitCore.invalidCreditorIdentifier",
+                  );
+                },
+              )
+              .otherwise(() => {
+                showToast({ variant: "error", title: translateError(error), error });
+              });
           })
           .tapOk(onSuccess),
     });
@@ -479,7 +598,7 @@ export const MerchantProfilePaymentMethodSepaDirectDebitCoreRequestModal = ({
                           <LakeTextInput
                             value={value}
                             onChangeText={onChange}
-                            error={error}
+                            error={mutationValidationMessage.current ?? error ?? undefined}
                             valid={valid}
                             ref={ref}
                             autoFocus={true}

@@ -29,6 +29,7 @@ import {
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { locale, t } from "../utils/i18n";
 import { Router } from "../utils/routes";
+import { toRequiredDocumentPurposes } from "../utils/supportingDocuments";
 import { ErrorView } from "./ErrorView";
 import { OnboardingFooter } from "./OnboardingFooter";
 import { OnboardingHeader } from "./OnboardingHeader";
@@ -160,7 +161,11 @@ export const SupportingDocumentCollectionFlow = ({ supportingDocumentCollectionI
                       file: {
                         id: document.id,
                         name: document.statusInfo.filename,
-                        statusInfo: { status: "Refused", reason: document.statusInfo.reason },
+                        statusInfo: {
+                          status: "Refused",
+                          reason: document.statusInfo.reason,
+                          reasonCode: document.statusInfo.reasonCode,
+                        },
                       },
                     })
                   : Option.None(),
@@ -182,11 +187,6 @@ export const SupportingDocumentCollectionFlow = ({ supportingDocumentCollectionI
             .exhaustive(),
         );
 
-        const requiredDocumentsPurposes =
-          supportingDocumentCollection.requiredSupportingDocumentPurposes.map(
-            purpose => purpose.name,
-          ) ?? [];
-
         return (
           <WithPartnerAccentColor
             color={
@@ -196,7 +196,7 @@ export const SupportingDocumentCollectionFlow = ({ supportingDocumentCollectionI
           >
             <>
               {match(supportingDocumentCollection.projectInfo)
-                .with({ name: P.string, logoUri: P.string }, ({ name, logoUri }) => (
+                .with({ name: P.string }, ({ name, logoUri }) => (
                   <OnboardingHeader projectName={name} projectLogo={logoUri} />
                 ))
                 .otherwise(() => null)}
@@ -223,22 +223,65 @@ export const SupportingDocumentCollectionFlow = ({ supportingDocumentCollectionI
                       <ResponsiveContainer breakpoint={breakpoints.medium}>
                         {({ small }) => (
                           <>
-                            <StepTitle isMobile={small}>
-                              {t("supportingDocumentCollection.title")}
-                            </StepTitle>
+                            {match(supportingDocumentCollection.type)
+                              .with("Onboarding", () => (
+                                <StepTitle>{t("supportingDocumentCollection.title")}</StepTitle>
+                              ))
+                              .with("Merchant", () => (
+                                <StepTitle>
+                                  {t("supportingDocumentCollection.merchant.title")}
+                                </StepTitle>
+                              ))
+                              .otherwise(() => null)}
 
-                            {supportingDocumentCollection.accountHolder.name != null ? (
-                              <>
-                                <Space height={small ? 12 : 16} />
-
-                                <LakeText>
-                                  {t("supportingDocumentCollection.intro", {
-                                    accountHolderName:
-                                      supportingDocumentCollection.accountHolder.name,
-                                  })}
-                                </LakeText>
-                              </>
-                            ) : null}
+                            <LakeText>
+                              {match({ supportingDocumentCollection })
+                                .with(
+                                  {
+                                    supportingDocumentCollection: {
+                                      type: "Onboarding",
+                                      accountHolder: { name: P.nonNullable },
+                                    },
+                                  },
+                                  ({
+                                    supportingDocumentCollection: {
+                                      accountHolder: { name },
+                                    },
+                                  }) => (
+                                    <>
+                                      <Space height={small ? 24 : 32} />
+                                      <LakeText>
+                                        {t("supportingDocumentCollection.onboarding.intro", {
+                                          accountHolderName: name,
+                                        })}
+                                      </LakeText>
+                                    </>
+                                  ),
+                                )
+                                .with(
+                                  {
+                                    supportingDocumentCollection: {
+                                      type: "Merchant",
+                                      accountHolder: { name: P.nonNullable },
+                                    },
+                                  },
+                                  ({
+                                    supportingDocumentCollection: {
+                                      accountHolder: { name },
+                                    },
+                                  }) => (
+                                    <>
+                                      <Space height={small ? 24 : 32} />
+                                      <LakeText>
+                                        {t("supportingDocumentCollection.merchant.intro", {
+                                          accountHolderName: name,
+                                        })}
+                                      </LakeText>
+                                    </>
+                                  ),
+                                )
+                                .otherwise(() => null)}
+                            </LakeText>
 
                             <Space height={small ? 24 : 32} />
 
@@ -246,7 +289,9 @@ export const SupportingDocumentCollectionFlow = ({ supportingDocumentCollectionI
                               <SupportingDocumentCollection
                                 ref={supportingDocumentCollectionRef}
                                 documents={docs}
-                                requiredDocumentPurposes={requiredDocumentsPurposes}
+                                requiredDocumentPurposes={toRequiredDocumentPurposes(
+                                  supportingDocumentCollection.requiredSupportingDocumentPurposes,
+                                )}
                                 generateUpload={generateUpload}
                                 status={supportingDocumentCollection.statusInfo.status}
                                 templateLanguage={locale.language}

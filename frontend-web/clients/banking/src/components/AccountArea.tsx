@@ -32,6 +32,7 @@ import { CONTENT_ID, SkipToContent } from "@swan-io/shared-business/src/componen
 import { AdditionalInfo } from "@swan-io/shared-business/src/components/SupportChat";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { NativeScrollEvent, NativeSyntheticEvent, Pressable, StyleSheet, View } from "react-native";
+import { useFlag, useTggl } from "react-tggl-client";
 import { match, P } from "ts-pattern";
 import logoSwan from "../assets/images/logo-swan.svg";
 import { AccountAreaQuery, AccountLanguage, IdentificationFragment } from "../graphql/partner";
@@ -43,11 +44,10 @@ import { env } from "../utils/env";
 import { partnerAdminClient } from "../utils/gql";
 import { t } from "../utils/i18n";
 import { getIdentificationLevelStatusInfo } from "../utils/identification";
-import { logFrontendError, setSentryUser } from "../utils/logger";
 import { projectConfiguration } from "../utils/projectId";
 import { accountRoutes, Router } from "../utils/routes";
 import { signout } from "../utils/signout";
-import { updateTgglContext, useTgglFlag } from "../utils/tggl";
+import { logFrontendError, setTrackingUser } from "../utils/tracing";
 import { AccountDetailsArea } from "./AccountDetailsArea";
 import { AccountNavigation, Menu } from "./AccountNavigation";
 import { AccountActivationTag, AccountPicker, AccountPickerButton } from "./AccountPicker";
@@ -155,9 +155,8 @@ type Props = {
   accountMembership: NonNullable<AccountAreaQuery["accountMembership"]>;
   user: NonNullable<AccountAreaQuery["user"]>;
   projectInfo: NonNullable<AccountAreaQuery["projectInfo"]>;
-  lastRelevantIdentification: Option<IdentificationFragment>;
+  lastIdentification: Option<IdentificationFragment>;
   shouldDisplayIdVerification: boolean;
-  requireFirstTransfer: boolean;
   activationTag: AccountActivationTag;
   reload: () => void;
 };
@@ -169,13 +168,12 @@ export const AccountArea = ({
   projectInfo,
   user,
   activationTag,
-  lastRelevantIdentification,
+  lastIdentification,
   shouldDisplayIdVerification,
-  requireFirstTransfer,
   reload,
 }: Props) => {
   const [isScrolled, setIsScrolled] = useState(false);
-  const scrollView = useRef<ScrollViewRef | null>(null);
+  const scrollView = useRef<ScrollViewRef>(null);
 
   const scrollToTop = useCallback(() => {
     scrollView.current?.scrollTo({ y: 0, animated: true });
@@ -212,7 +210,7 @@ export const AccountArea = ({
   }, [setAccountMembershipState, accountMembershipId, userId]);
 
   useEffect(() => {
-    setSentryUser({
+    setTrackingUser({
       id: user.id,
       firstName: nullishOrEmptyToUndefined(user.firstName),
       lastName: nullishOrEmptyToUndefined(user.preferredLastName),
@@ -225,7 +223,7 @@ export const AccountArea = ({
   const projectLogo = projectInfo.logoUri ?? undefined;
 
   const permissions = usePermissions();
-  const isMerchantFlagActive = useTgglFlag("merchantWebBanking").getOr(false);
+  const isMerchantFlagActive = useFlag("merchantWebBanking", false);
 
   const menu: Menu =
     holder?.verificationStatus === "Refused"
@@ -292,13 +290,14 @@ export const AccountArea = ({
         ];
 
   const route = Router.useRoute(accountRoutes);
+  const { updateContext } = useTggl();
 
   const email = accountMembership.email;
   const hasRequiredIdentificationLevel = accountMembership.hasRequiredIdentificationLevel ?? false;
 
   useEffect(() => {
-    updateTgglContext({ accountCountry, userId, email });
-  }, [accountCountry, userId, email]);
+    updateContext({ accountCountry, userId, email });
+  }, [updateContext, accountCountry, userId, email]);
 
   const additionalInfo = useMemo<AdditionalInfo>(
     () => ({
@@ -312,7 +311,7 @@ export const AccountArea = ({
     [firstName, preferredLastName, phoneNumber, userId, email, projectName],
   );
 
-  const accountPickerButtonRef = useRef<View | null>(null);
+  const accountPickerButtonRef = useRef<View>(null);
   const [isAccountPickerOpen, setAccountPickerOpen] = useBoolean(false);
 
   const accountId = accountMembership.accountId;
@@ -367,16 +366,27 @@ export const AccountArea = ({
                   <AccountPickerButton
                     ref={accountPickerButtonRef}
                     desktop={true}
-                    accountMembershipId={accountMembershipId}
                     activationTag={activationTag}
                     activationLinkActive={
-                      route?.name === "AccountActivation" && permissions.canReadAccountDetails
+                      route?.name === "AccountActivationArea" && permissions.canReadAccountDetails
                     }
                     hasMultipleMemberships={hasMultipleMemberships}
                     selectedAccountMembership={accountMembership}
                     onPress={setAccountPickerOpen.on}
                     availableBalance={account?.balances?.available ?? undefined}
                   />
+
+                  <Space height={32} />
+
+                  {(activationTag === "pending" || activationTag === "actionRequired") && (
+                    <LakeButton
+                      color="current"
+                      icon="checkmark-starburst-filled"
+                      onPress={() => Router.push("AccountActivationRoot", { accountMembershipId })}
+                    >
+                      {t("accountActivation.title")}
+                    </LakeButton>
+                  )}
 
                   <Popover
                     referenceRef={accountPickerButtonRef}
@@ -395,7 +405,7 @@ export const AccountArea = ({
                     </View>
                   </Popover>
 
-                  <Space height={32} />
+                  <Space height={24} />
                   <AccountNavigation menu={menu} />
                   <Fill minHeight={48} />
 
@@ -456,10 +466,11 @@ export const AccountArea = ({
                       >
                         {holder?.verificationStatus === "Refused" ? (
                           <AccountActivationPage
-                            requireFirstTransfer={requireFirstTransfer}
+                            largeViewport={largeViewport}
                             hasRequiredIdentificationLevel={hasRequiredIdentificationLevel}
-                            lastRelevantIdentification={lastRelevantIdentification}
+                            lastIdentification={lastIdentification}
                             accentColor={accentColor}
+                            projectLogo={projectLogo}
                             accountMembershipId={accountMembershipId}
                             additionalInfo={additionalInfo}
                             projectName={projectName}
@@ -474,7 +485,7 @@ export const AccountArea = ({
                                 account?.balances?.available.value != null
                                   ? Number(account?.balances?.available.value)
                                   : null,
-                              lastRelevantIdentification: lastRelevantIdentification.map(
+                              lastIdentification: lastIdentification.map(
                                 getIdentificationLevelStatusInfo,
                               ),
                             })
@@ -504,7 +515,10 @@ export const AccountArea = ({
                                               onPress={() => {
                                                 const params = new URLSearchParams();
 
-                                                params.set("redirectTo", Router.PopupCallback());
+                                                params.set(
+                                                  "redirectTo",
+                                                  Router.AccountRoot({ accountMembershipId }),
+                                                );
                                                 params.set("identificationLevel", "Auto");
                                                 params.set("email", email);
 
@@ -518,7 +532,7 @@ export const AccountArea = ({
                                                   )
                                                   .otherwise(() => {});
 
-                                                window.location.replace(
+                                                window.location.assign(
                                                   `/auth/login?${params.toString()}`,
                                                 );
                                               }}
@@ -540,7 +554,7 @@ export const AccountArea = ({
                                       idVerifiedMatchError: true,
                                     },
                                   },
-                                  lastRelevantIdentification: Option.P.Some({ status: "Pending" }),
+                                  lastIdentification: Option.P.Some({ status: "Pending" }),
                                 },
                                 () => (
                                   <ResponsiveContainer breakpoint={breakpoints.large}>
@@ -580,7 +594,10 @@ export const AccountArea = ({
                                               onPress={() => {
                                                 const params = new URLSearchParams();
 
-                                                params.set("redirectTo", Router.PopupCallback());
+                                                params.set(
+                                                  "redirectTo",
+                                                  Router.AccountRoot({ accountMembershipId }),
+                                                );
                                                 params.set("identificationLevel", "Auto");
                                                 if (statusInfo.emailVerifiedMatchError) {
                                                   params.set("email", email);
@@ -596,7 +613,7 @@ export const AccountArea = ({
                                                   )
                                                   .otherwise(() => {});
 
-                                                window.location.replace(
+                                                window.location.assign(
                                                   `/auth/login?${params.toString()}`,
                                                 );
                                               }}
@@ -640,7 +657,7 @@ export const AccountArea = ({
                                         title={t("account.statusAlert.suspended")}
                                         callToAction={
                                           <LakeButton
-                                            href="mailto:support@swan.io"
+                                            href="https://support.swan.io/hc/requests/new"
                                             mode="tertiary"
                                             color="warning"
                                             size="small"
@@ -687,7 +704,7 @@ export const AccountArea = ({
                                         title={t("account.statusAlert.closingWithNegativeBalance")}
                                         callToAction={
                                           <LakeButton
-                                            href="mailto:support@swan.io"
+                                            href="https://support.swan.io/hc/requests/new"
                                             mode="tertiary"
                                             color="negative"
                                             size="small"
@@ -725,7 +742,7 @@ export const AccountArea = ({
                                             </LakeButton>
                                           ) : null
                                         }
-                                      ></LakeAlert>
+                                      />
                                     </View>
                                   )}
                                 </ResponsiveContainer>
@@ -829,22 +846,19 @@ export const AccountArea = ({
                                   <NotFoundPage />
                                 ),
                               )
-                              .with({ name: "AccountActivation" }, () =>
-                                permissions.canReadAccountDetails ? (
-                                  <AccountActivationPage
-                                    hasRequiredIdentificationLevel={hasRequiredIdentificationLevel}
-                                    lastRelevantIdentification={lastRelevantIdentification}
-                                    requireFirstTransfer={requireFirstTransfer}
-                                    accentColor={accentColor}
-                                    accountMembershipId={accountMembershipId}
-                                    additionalInfo={additionalInfo}
-                                    projectName={projectName}
-                                    refetchAccountAreaQuery={reload}
-                                  />
-                                ) : (
-                                  <NotFoundPage />
-                                ),
-                              )
+                              .with({ name: "AccountActivationArea" }, () => (
+                                <AccountActivationPage
+                                  largeViewport={largeViewport}
+                                  hasRequiredIdentificationLevel={hasRequiredIdentificationLevel}
+                                  lastIdentification={lastIdentification}
+                                  accentColor={accentColor}
+                                  projectLogo={projectLogo}
+                                  accountMembershipId={accountMembershipId}
+                                  additionalInfo={additionalInfo}
+                                  projectName={projectName}
+                                  refetchAccountAreaQuery={reload}
+                                />
+                              ))
                               .otherwise(() => (
                                 <NotFoundPage
                                   title={
@@ -867,7 +881,7 @@ export const AccountArea = ({
 
               {largeViewport ? null : (
                 <NavigationTabBar
-                  identificationStatusInfo={lastRelevantIdentification.map(
+                  identificationStatusInfo={lastIdentification.map(
                     getIdentificationLevelStatusInfo,
                   )}
                   hasRequiredIdentificationLevel={hasRequiredIdentificationLevel}

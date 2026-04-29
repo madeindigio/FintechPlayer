@@ -9,13 +9,14 @@ import { breakpoints } from "@swan-io/lake/src/constants/design";
 import { useMemo } from "react";
 import { StyleSheet } from "react-native";
 import { P, match } from "ts-pattern";
-import { MerchantProfileDocument } from "../graphql/partner";
+import { MerchantPaymentMethodType, MerchantProfileDocument } from "../graphql/partner";
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { t } from "../utils/i18n";
 import { Router } from "../utils/routes";
-import { useTgglFlag } from "../utils/tggl";
 import { ErrorView } from "./ErrorView";
+import { MerchantProfilePaymentArea } from "./MerchantProfilePaymentArea";
 import { MerchantProfilePaymentLinkArea } from "./MerchantProfilePaymentLinkArea";
+import { MerchantProfilePaymentPicker } from "./MerchantProfilePaymentPicker";
 import { MerchantProfileSettings } from "./MerchantProfileSettings";
 
 const styles = StyleSheet.create({
@@ -24,6 +25,12 @@ const styles = StyleSheet.create({
   },
 });
 
+const ALLOWED_PAYMENT_METHODS = new Set<MerchantPaymentMethodType>([
+  "Card",
+  "SepaDirectDebitB2b",
+  "SepaDirectDebitCore",
+]);
+
 type Props = {
   accountMembershipId: string;
   merchantProfileId: string;
@@ -31,14 +38,13 @@ type Props = {
 
 export const AccountMerchantsProfileArea = ({ accountMembershipId, merchantProfileId }: Props) => {
   const route = Router.useRoute([
+    "AccountMerchantsProfilePaymentsArea",
     "AccountMerchantsProfileSettings",
     "AccountMerchantsProfilePaymentLinkArea",
+    "AccountMerchantsProfilePaymentsPicker",
   ]);
 
   const [merchantProfile, { refresh }] = useQuery(MerchantProfileDocument, { merchantProfileId });
-  const isPaymentLinksTabFlagActive = useTgglFlag(
-    "frontendActivateMerchantPaymentLinksTabInWebBanking",
-  ).getOr(false);
 
   useCrumb(
     useMemo(() => {
@@ -54,25 +60,46 @@ export const AccountMerchantsProfileArea = ({ accountMembershipId, merchantProfi
     }, [merchantProfile, accountMembershipId, merchantProfileId]),
   );
 
+  const { shouldEnableCheckTile, shouldEnablePaymentLinkTile } = useMemo(() => {
+    const enabledPaymentMethods = merchantProfile
+      .toOption()
+      .flatMap(result => result.toOption())
+      .flatMap(({ merchantProfile }) =>
+        Option.fromNullable(merchantProfile?.merchantPaymentMethods),
+      )
+      .map(methods => methods.filter(method => method.statusInfo.status === "Enabled"))
+      .getOr([]);
+
+    return {
+      shouldEnableCheckTile: enabledPaymentMethods.some(method => method.type === "Check"),
+      shouldEnablePaymentLinkTile: enabledPaymentMethods.some(method =>
+        ALLOWED_PAYMENT_METHODS.has(method.type),
+      ),
+    };
+  }, [merchantProfile]);
+
   const tabs = useMemo(
     () => [
-      ...(isPaymentLinksTabFlagActive
-        ? [
-            {
-              label: t("merchantProfile.tab.paymentLinks"),
-              url: Router.AccountMerchantsProfilePaymentLinkList({
-                accountMembershipId,
-                merchantProfileId,
-              }),
-            },
-          ]
-        : []),
+      {
+        label: t("merchantProfile.tab.payments"),
+        url: Router.AccountMerchantsProfilePaymentsList({
+          accountMembershipId,
+          merchantProfileId,
+        }),
+      },
+      {
+        label: t("merchantProfile.tab.paymentLinks"),
+        url: Router.AccountMerchantsProfilePaymentLinkList({
+          accountMembershipId,
+          merchantProfileId,
+        }),
+      },
       {
         label: t("merchantProfile.tab.settings"),
         url: Router.AccountMerchantsProfileSettings({ accountMembershipId, merchantProfileId }),
       },
     ],
-    [accountMembershipId, isPaymentLinksTabFlagActive, merchantProfileId],
+    [accountMembershipId, merchantProfileId],
   );
 
   return (
@@ -81,39 +108,56 @@ export const AccountMerchantsProfileArea = ({ accountMembershipId, merchantProfi
         match(merchantProfile)
           .with(AsyncData.P.NotAsked, AsyncData.P.Loading, () => <LoadingView />)
           .with(AsyncData.P.Done(Result.P.Error(P.select())), error => <ErrorView error={error} />)
-          .with(AsyncData.P.Done(Result.P.Ok({ merchantProfile: P.nullish })), () => (
-            <NotFoundPage />
-          ))
           .with(
             AsyncData.P.Done(Result.P.Ok({ merchantProfile: P.select(P.nonNullable) })),
             merchantProfile => (
               <>
-                <TabView
-                  sticky={true}
-                  padding={small ? 24 : 40}
-                  tabs={tabs}
-                  otherLabel={t("common.tabs.other")}
-                />
-
-                {match(route)
-                  .with({ name: "AccountMerchantsProfileSettings" }, ({ params }) => (
-                    <MerchantProfileSettings
-                      params={params}
-                      merchantProfile={merchantProfile}
-                      large={large}
-                      onUpdate={() => {
-                        refresh();
-                      }}
+                {route?.name === "AccountMerchantsProfilePaymentsPicker" ? (
+                  <MerchantProfilePaymentPicker
+                    params={route.params}
+                    shouldEnableCheckTile={shouldEnableCheckTile}
+                    shouldEnablePaymentLinkTile={shouldEnablePaymentLinkTile}
+                    merchantProfile={merchantProfile}
+                  />
+                ) : (
+                  <>
+                    <TabView
+                      sticky={true}
+                      padding={small ? 24 : 40}
+                      tabs={tabs}
+                      otherLabel={t("common.tabs.other")}
                     />
-                  ))
-                  .with({ name: "AccountMerchantsProfilePaymentLinkArea" }, ({ params }) => (
-                    <MerchantProfilePaymentLinkArea large={large} params={params} />
-                  ))
-                  .with(P.nullish, () => <NotFoundPage />)
-                  .exhaustive()}
+
+                    {match(route)
+                      .with({ name: "AccountMerchantsProfileSettings" }, ({ params }) => (
+                        <MerchantProfileSettings
+                          params={params}
+                          merchantProfile={merchantProfile}
+                          large={large}
+                          onUpdate={() => {
+                            refresh();
+                          }}
+                        />
+                      ))
+                      .with({ name: "AccountMerchantsProfilePaymentLinkArea" }, ({ params }) => (
+                        <MerchantProfilePaymentLinkArea large={large} params={params} />
+                      ))
+                      .with({ name: "AccountMerchantsProfilePaymentsArea" }, ({ params }) => (
+                        <MerchantProfilePaymentArea
+                          large={large}
+                          params={params}
+                          shouldEnableCheckTile={shouldEnableCheckTile}
+                          shouldEnablePaymentLinkTile={shouldEnablePaymentLinkTile}
+                        />
+                      ))
+                      .with(P.nullish, () => <NotFoundPage />)
+                      .exhaustive()}
+                  </>
+                )}
               </>
             ),
           )
+          .with(AsyncData.P.Done(Result.P.Ok(P._)), () => <NotFoundPage />)
           .exhaustive()
       }
     </ResponsiveContainer>

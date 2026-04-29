@@ -1,16 +1,15 @@
 {
   "name": "@swan-io/frontend-server",
   "description": "Swan frontend server",
-  "version": "1.23.13",
+  "version": "1.33.0",
   "private": true,
-  "packageManager": "pnpm@9.13.0",
+  "packageManager": "pnpm@10.26.1",
   "engines": {
-    "node": ">=18.20.0",
-    "pnpm": "^9.13.0"
+    "node": "^24.12.0"
   },
   "repository": {
     "type": "git",
-    "url": "https://gitlab.com/swan-io/frontend"
+    "url": "git@github.com:swan-io/swan-partner-frontend.git"
   },
   "scripts": {
     "build": "pnpm clean && tsc -p tsconfig.json && shx cp -r ./src/views ./dist",
@@ -20,46 +19,41 @@
     "start-swan": "node -r ./dist/tracing.js ./dist/index.swan.js"
   },
   "dependencies": {
-    "@fastify/accepts": "4.3.0",
-    "@fastify/cors": "9.0.1",
-    "@fastify/helmet": "11.1.1",
-    "@fastify/reply-from": "9.8.0",
-    "@fastify/secure-session": "7.5.1",
-    "@fastify/sensible": "5.6.0",
-    "@fastify/static": "7.0.4",
-    "@fastify/view": "9.1.0",
-    "@opentelemetry/api": "1.9.0",
-    "@opentelemetry/core": "1.26.0",
-    "@opentelemetry/exporter-jaeger": "1.26.0",
-    "@opentelemetry/instrumentation": "0.53.0",
-    "@opentelemetry/instrumentation-fastify": "0.40.0",
-    "@opentelemetry/instrumentation-http": "0.53.0",
-    "@opentelemetry/instrumentation-pino": "0.42.0",
-    "@opentelemetry/propagator-jaeger": "1.26.0",
-    "@opentelemetry/resources": "1.26.0",
-    "@opentelemetry/sdk-trace-base": "1.26.0",
-    "@opentelemetry/sdk-trace-node": "1.26.0",
-    "@opentelemetry/semantic-conventions": "1.27.0",
-    "@swan-io/boxed": "3.1.1",
+    "@fastify/accepts": "5.0.2",
+    "@fastify/cors": "11.1.0",
+    "@fastify/helmet": "13.0.1",
+    "@fastify/middie": "9.0.3",
+    "@fastify/reply-from": "12.3.1",
+    "@fastify/secure-session": "8.2.0",
+    "@fastify/sensible": "6.0.3",
+    "@fastify/static": "8.2.0",
+    "@fastify/view": "10.0.2",
+    "@opentelemetry/auto-instrumentations-node": "0.62.1",
+    "@opentelemetry/core": "2.0.1",
+    "@opentelemetry/exporter-trace-otlp-proto": "0.203.0",
+    "@opentelemetry/propagator-jaeger": "2.0.1",
+    "@opentelemetry/sdk-node": "0.203.0",
+    "@opentelemetry/sdk-trace-base": "2.0.1",
+    "@swan-io/boxed": "3.2.1",
     "@types/escape-html": "1.0.4",
     "escape-html": "1.0.3",
-    "fast-proxy": "2.2.0",
-    "fastify": "4.28.1",
-    "get-port": "5.1.1",
-    "graphql-request": "6.1.0",
+    "fastify": "5.5.0",
+    "graphql-request": "7.4.0",
     "graphql-tag": "2.12.6",
     "mustache": "4.2.0",
-    "node-mailjet": "6.0.6",
-    "pathe": "1.1.2",
+    "node-mailjet": "6.0.11",
+    "pathe": "2.0.3",
     "picocolors": "1.1.1",
-    "pino-pretty": "11.3.0",
-    "ts-pattern": "5.5.0",
-    "valienv": "0.7.0"
+    "pino-pretty": "13.1.3",
+    "tggl-client": "3.2.1",
+    "ts-pattern": "5.9.0",
+    "valienv": "1.1.0"
   },
   "devDependencies": {
     "@types/accepts": "1.3.7",
-    "@types/mustache": "4.2.5",
-    "graphql": "16.9.0",
-    "shx": "0.3.4"
+    "@types/mustache": "4.2.6",
+    "graphql": "16.12.0",
+    "jsonc-parser": "3.3.1",
+    "shx": "0.4.0"
   }
 }

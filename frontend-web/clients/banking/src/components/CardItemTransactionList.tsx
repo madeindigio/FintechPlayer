@@ -1,4 +1,4 @@
-import { AsyncData, Result } from "@swan-io/boxed";
+import { AsyncData, Dict, Result } from "@swan-io/boxed";
 import { useQuery } from "@swan-io/graphql-client";
 import { Box } from "@swan-io/lake/src/components/Box";
 import { EmptyView } from "@swan-io/lake/src/components/EmptyView";
@@ -12,9 +12,10 @@ import { isNotNullish, nullishOrEmptyToUndefined } from "@swan-io/lake/src/utils
 import { useCallback, useMemo, useRef, useState } from "react";
 import { StyleSheet } from "react-native";
 import { isMatching, match, P } from "ts-pattern";
+import { Except } from "type-fest";
 import { CardTransactionsPageDocument } from "../graphql/partner";
 import { t } from "../utils/i18n";
-import { GetRouteParams, Router } from "../utils/routes";
+import { RouteParams, Router } from "../utils/routes";
 import { Connection } from "./Connection";
 import { ErrorView } from "./ErrorView";
 import { TransactionDetail } from "./TransactionDetail";
@@ -38,36 +39,33 @@ const styles = StyleSheet.create({
 const NUM_TO_RENDER = 20;
 
 type Props = {
-  params: GetRouteParams<"AccountCardsItemTransactions">;
+  params: RouteParams<"AccountCardsItemTransactions">;
 };
-
-const availableFilters = [
-  "isAfterUpdatedAt",
-  "isBeforeUpdatedAt",
-  "isBeforeUpdatedAt",
-  "status",
-] as const;
 
 const DEFAULT_STATUSES = [
   "Booked" as const,
   "Canceled" as const,
   "Pending" as const,
   "Rejected" as const,
+  "Deferred" as const,
 ];
 
 export const CardItemTransactionList = ({ params }: Props) => {
-  const filters = useMemo<TransactionFilters>(
-    () => ({
-      isAfterUpdatedAt: params.isAfterUpdatedAt,
+  const filters = useMemo(
+    (): Except<TransactionFilters, "paymentProduct"> => ({
+      amount: params.amount,
       isBeforeUpdatedAt: params.isBeforeUpdatedAt,
-      paymentProduct: undefined,
+      isAfterUpdatedAt: params.isAfterUpdatedAt,
       status: params.status?.filter(
-        isMatching(P.union("Booked", "Canceled", "Pending", "Rejected", "Released", "Upcoming")),
+        isMatching(
+          P.union("Booked", "Canceled", "Pending", "Rejected", "Released", "Upcoming", "Deferred"),
+        ),
       ),
     }),
-    [params.isAfterUpdatedAt, params.isBeforeUpdatedAt, params.status],
+    [params],
   );
 
+  const availableFilters = useMemo(() => Dict.keys(filters), [filters]);
   const search = nullishOrEmptyToUndefined(params.search);
   const hasSearchOrFilters = isNotNullish(search) || Object.values(filters).some(isNotNullish);
 
@@ -85,7 +83,7 @@ export const CardItemTransactionList = ({ params }: Props) => {
 
   const [activeTransactionId, setActiveTransactionId] = useState<string | null>(null);
 
-  const panelRef = useRef<FocusTrapRef | null>(null);
+  const panelRef = useRef<FocusTrapRef>(null);
 
   const onActiveRowChange = useCallback(
     (element: HTMLElement) => panelRef.current?.setInitiallyFocusedElement(element),

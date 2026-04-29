@@ -29,6 +29,7 @@ import { useDebounce } from "@swan-io/lake/src/hooks/useDebounce";
 import { identity } from "@swan-io/lake/src/utils/function";
 import { filterRejectionsToResult } from "@swan-io/lake/src/utils/gql";
 import {
+  emptyToUndefined,
   isNotNullish,
   isNotNullishOrEmpty,
   nullishOrEmptyToUndefined,
@@ -36,7 +37,11 @@ import {
 import { trim } from "@swan-io/lake/src/utils/string";
 import { showToast } from "@swan-io/shared-business/src/state/toasts";
 import { translateError } from "@swan-io/shared-business/src/utils/i18n";
-import { combineValidators, toOptionalValidator, useForm } from "@swan-io/use-form";
+import {
+  validateArrayRequired,
+  validateRequired,
+} from "@swan-io/shared-business/src/utils/validation";
+import { toOptionalValidator, useForm } from "@swan-io/use-form";
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { P, match } from "ts-pattern";
@@ -49,16 +54,11 @@ import {
 import { env } from "../utils/env";
 import { t } from "../utils/i18n";
 import { Router } from "../utils/routes";
-import {
-  validateArrayRequired,
-  validateNumeric,
-  validateRequired,
-  validateUrl,
-} from "../utils/validations";
-
+import { validateNumeric, validateReference, validateUrl } from "../utils/validations";
 const PREVIEW_CONTAINER_VERTICAL_SPACING = 16;
 const PREVIEW_TOP_BAR_HEIGHT = 16;
 const IFRAME_ORIGINAL_HEIGHT = 1000;
+const DOTS_AT_END_REGEXP = /\.+$/;
 
 const styles = StyleSheet.create({
   root: {
@@ -113,7 +113,7 @@ const styles = StyleSheet.create({
   tileContents: { flexGrow: 1 },
   optionsDesktop: {
     padding: spacings[32],
-    maxWidth: 350,
+    width: 350,
   },
   optionsMobile: { padding: spacings[32] },
   accordion: { paddingHorizontal: 0 },
@@ -141,11 +141,13 @@ const styles = StyleSheet.create({
 
 const formatPaymentMethodsName = (paymentMethodType: MerchantPaymentMethodType) => {
   return match(paymentMethodType)
-    .with("Card", () => t("merchantProfile.paymentLink.paymentMethod.card"))
-    .with(P.union("SepaDirectDebitB2b", "SepaDirectDebitCore"), () =>
-      t("merchantProfile.paymentLink.paymentMethod.SepaDirectDebit"),
+    .with("Card", "OnlineCard", "InPersonCard", () =>
+      t("merchantProfile.paymentLink.paymentMethod.card"),
     )
-    .with("Check", () => t("merchantProfile.paymentLink.paymentMethod.checks"))
+    .with(P.union("SepaDirectDebitB2b", "SepaDirectDebitCore"), () =>
+      t("merchantProfile.paymentLink.paymentMethod.sepaDirectDebit"),
+    )
+    .with("Check", () => t("merchantProfile.paymentLink.paymentMethod.check"))
     .with(P.union("InternalDirectDebitB2b", "InternalDirectDebitStandard"), () =>
       t("merchantProfile.paymentLink.paymentMethod.internalDirectDebit"),
     )
@@ -204,8 +206,8 @@ type Props = {
   accentColor: string | undefined;
   merchantLogoUrl: string | undefined;
   merchantName: string | undefined;
-  paymentMethods: Pick<MerchantPaymentMethod, "id" | "statusInfo" | "updatedAt" | "type">[];
-  paymentLinks: PaymentLinkConnectionFragment | null | undefined;
+  paymentMethods: Pick<MerchantPaymentMethod, "id" | "statusInfo" | "type">[];
+  paymentLinks?: PaymentLinkConnectionFragment | null;
   onPressClose: () => void;
 };
 
@@ -267,12 +269,13 @@ export const MerchantProfilePaymentLinkNew = ({
     },
     amount: {
       initialValue: "",
-      sanitize: trim,
-      validate: combineValidators(validateRequired, validateNumeric({ min: 0 })),
+      sanitize: value => value.trim().replace(DOTS_AT_END_REGEXP, ""),
+      validate: validateNumeric({ min: 0 }),
     },
     reference: {
       initialValue: "",
       sanitize: trim,
+      validate: validateReference,
     },
     externalReference: {
       initialValue: "",
@@ -375,7 +378,7 @@ export const MerchantProfilePaymentLinkNew = ({
     if (isNotNullishOrEmpty(label)) {
       url.searchParams.append("label", label);
     }
-    if (isNotNullishOrEmpty(amount) && !isNaN(Number(amount))) {
+    if (isNotNullishOrEmpty(amount) && !Number.isNaN(Number(amount))) {
       url.searchParams.append("amount", amount);
     }
 
@@ -408,12 +411,14 @@ export const MerchantProfilePaymentLinkNew = ({
         const option = Option.allFromDict(values);
 
         if (option.isSome()) {
-          const { label, amount, paymentMethodIds } = option.get();
+          const { label, amount, paymentMethodIds, externalReference, reference } = option.get();
 
           return createMerchantPaymentLink({
             input: {
               merchantProfileId,
               label,
+              reference: emptyToUndefined(reference),
+              externalReference,
               amount: {
                 value: amount,
                 currency: "EUR",
@@ -511,16 +516,20 @@ export const MerchantProfilePaymentLinkNew = ({
                   </Field>
 
                   <Field name="amount">
-                    {({ value, onChange, error }) => (
+                    {({ value, onChange, error, onBlur }) => (
                       <LakeLabel
                         label={t("merchantProfile.paymentLink.new.amount")}
                         render={id => (
                           <LakeTextInput
                             id={id}
-                            value={value.replace(",", ".")}
+                            value={value}
                             unit="EUR"
                             onChangeText={onChange}
                             error={error}
+                            onBlur={() => {
+                              onChange(value.replace(",", ".").replace(DOTS_AT_END_REGEXP, ""));
+                              onBlur();
+                            }}
                           />
                         )}
                       />
@@ -531,6 +540,7 @@ export const MerchantProfilePaymentLinkNew = ({
                     {({ value, onChange, error }) => (
                       <LakeLabel
                         label={t("merchantProfile.paymentLink.new.reference")}
+                        optionalLabel={t("form.optional")}
                         render={id => (
                           <LakeTextInput
                             id={id}
@@ -547,6 +557,7 @@ export const MerchantProfilePaymentLinkNew = ({
                     {({ value, onChange, error }) => (
                       <LakeLabel
                         label={t("merchantProfile.paymentLink.new.externalReference")}
+                        optionalLabel={t("form.optional")}
                         render={id => (
                           <LakeTextInput
                             id={id}
@@ -723,19 +734,16 @@ export const MerchantProfilePaymentLinkNew = ({
                               <iframe
                                 tabIndex={-1}
                                 src={previewUrl}
-                                style={
-                                  // eslint-disable-next-line react-native/no-inline-styles
-                                  {
-                                    backgroundColor: backgroundColor.default,
-                                    pointerEvents: "none",
-                                    border: "none",
-                                    width: selectedPreview === "desktop" ? 1280 : 440,
-                                    height: IFRAME_ORIGINAL_HEIGHT,
-                                    minHeight: IFRAME_ORIGINAL_HEIGHT,
-                                    transformOrigin: "0 0",
-                                    transform: `scale(${scaleFactor * 100}%)`,
-                                  }
-                                }
+                                style={{
+                                  backgroundColor: backgroundColor.default,
+                                  pointerEvents: "none",
+                                  border: "none",
+                                  width: selectedPreview === "desktop" ? 1280 : 440,
+                                  height: IFRAME_ORIGINAL_HEIGHT,
+                                  minHeight: IFRAME_ORIGINAL_HEIGHT,
+                                  transformOrigin: "0 0",
+                                  transform: `scale(${scaleFactor * 100}%)`,
+                                }}
                               />
                             </View>
                           );

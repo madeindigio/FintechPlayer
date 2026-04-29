@@ -19,7 +19,7 @@ import {
 } from "../graphql/partner";
 import { usePermissions } from "../hooks/usePermissions";
 import { t } from "../utils/i18n";
-import { GetRouteParams, Router } from "../utils/routes";
+import { RouteParams, Router } from "../utils/routes";
 import { CardList } from "./CardList";
 import { CardFilters, CardListFilter } from "./CardListFilter";
 import { CardWizard } from "./CardWizard";
@@ -43,7 +43,7 @@ type Props = {
   currentUserAccountMembershipId: string;
   currentUserAccountMembership: AccountMembershipFragment;
   editingAccountMembership: AccountMembershipFragment;
-  params: Except<GetRouteParams<"AccountMembersDetailsCardList">, "accountMembershipId">;
+  params: Except<RouteParams<"AccountMembersDetailsCardList">, "accountMembershipId">;
 };
 
 const PER_PAGE = 20;
@@ -63,13 +63,13 @@ export const AccountMembersDetailsCardList = ({
 
   const showAddCard = canAddCard && (isUserOwnMembership || canAddCardForOtherMemberships);
 
-  const filters = useMemo<CardFilters>(
-    () => ({
+  const filters = useMemo(
+    (): CardFilters => ({
       type: params.cardType?.filter(
         isMatching(P.union("Virtual", "VirtualAndPhysical", "SingleUseVirtual")),
       ),
     }),
-    [params.cardType],
+    [params],
   );
 
   const search = nullishOrEmptyToUndefined(params.cardSearch);

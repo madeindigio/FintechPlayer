@@ -12,7 +12,6 @@ fragment OnboardingRedirectInfo on Onboarding {
       id
     }
   }
-  redirectUrl
   statusInfo {
     __typename
     status
@@ -85,6 +84,38 @@ mutation FinalizeOnboarding($input: FinalizeOnboardingInput!) {
   }
 }
 
+fragment AccountHolderOnboardingRedirectInfo on AccountHolderOnboardingBase {
+  id
+  oAuthRedirectParameters {
+    redirectUrl
+    state
+  }
+  account {
+    legalRepresentativeMembership {
+      id
+    }
+  }
+}
+
+# used for onboarding v2
+mutation FinalizeAccountHolderOnboarding($input: FinalizeAccountHolderOnboardingInput!) {
+  finalizeAccountHolderOnboarding(input: $input) {
+    ... on FinalizeAccountHolderOnboardingSuccessPayload {
+      onboarding {
+        ... on CompanyAccountHolderOnboarding {
+          ...AccountHolderOnboardingRedirectInfo
+        }
+        ... on IndividualAccountHolderOnboarding {
+          ...AccountHolderOnboardingRedirectInfo
+        }
+      }
+    }
+    ... on Rejection {
+      message
+    }
+  }
+}
+
 mutation BindAccountMembership($input: BindAccountMembershipInput!) {
   bindAccountMembership(input: $input) {
     __typename
@@ -95,6 +126,66 @@ mutation BindAccountMembership($input: BindAccountMembershipInput!) {
     }
     ... on Rejection {
       message
+    }
+  }
+}
+
+mutation CreatePublicIndividualAccountHolderOnboarding(
+  $input: CreatePublicIndividualAccountHolderOnboardingInput!
+) {
+  createPublicIndividualAccountHolderOnboarding(input: $input) {
+    ... on CreatePublicIndividualAccountHolderOnboardingSuccessPayload {
+      onboarding {
+        id
+      }
+    }
+    ... on PublicOnboardingDisabledRejection {
+      message
+    }
+  }
+}
+
+mutation CreatePublicCompanyAccountHolderOnboarding(
+  $input: CreatePublicCompanyAccountHolderOnboardingInput!
+) {
+  createPublicCompanyAccountHolderOnboarding(input: $input) {
+    ... on CreatePublicCompanyAccountHolderOnboardingSuccessPayload {
+      onboarding {
+        id
+      }
+    }
+    ... on PublicOnboardingDisabledRejection {
+      message
+    }
+  }
+}
+
+fragment WebBankingSettings on WebBankingSettings {
+  canViewAccountStatement
+  canViewAccountDetails
+  canAddNewMembers
+  canViewMembers
+  canViewPaymentList
+  canOrderPhysicalCards
+  canInitiatePaymentsToNewBeneficiaries
+  canOrderVirtualCards
+  canManageVirtualIbans
+  canCreateMerchantProfile
+  canRequestOnlineCardsPaymentMethod
+  canRequestSepaDirectDebitCorePaymentMethod
+  canRequestSepaDirectDebitB2BPaymentMethod
+  canRequestInternalDirectDebitCorePaymentMethod
+  canRequestInternalDirectDebitB2BPaymentMethod
+  canRequestChecksPaymentMethod
+  canInitiateCheckMerchantPayments
+  canCreateMerchantPaymentLinks
+  canUpdateCards
+}
+
+query WebBankingSettings {
+  projectInfo {
+    webBankingSettings {
+      ...WebBankingSettings
     }
   }
 }

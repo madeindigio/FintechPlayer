@@ -12,7 +12,13 @@ import { CSSProperties, Fragment } from "react";
 import { StyleSheet } from "react-native";
 import { P, match } from "ts-pattern";
 import { t } from "../utils/i18n";
-import { CompanyOnboardingRoute, IndividualOnboardingRoute, Router } from "../utils/routes";
+import {
+  CompanyOnboardingRoute,
+  CompanyOnboardingRouteV2,
+  IndividualOnboardingRoute,
+  IndividualOnboardingRouteV2,
+  Router,
+} from "../utils/routes";
 import { getErrorFieldLabel } from "../utils/templateTranslations";
 
 const inlineStyles = {
@@ -41,7 +47,11 @@ const styles = StyleSheet.create({
   },
 });
 
-type StepRoute = IndividualOnboardingRoute | CompanyOnboardingRoute;
+type StepRoute =
+  | IndividualOnboardingRoute
+  | CompanyOnboardingRoute
+  | IndividualOnboardingRouteV2
+  | CompanyOnboardingRouteV2;
 
 type Props<R extends StepRoute> = {
   onboardingId: string;

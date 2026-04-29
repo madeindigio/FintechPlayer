@@ -170,7 +170,7 @@ export const NavigationTabBar = ({
     entries.find(item => item.matchRoutes.some(name => name === route?.name)) ?? entries[0];
 
   const signout = () => {
-    Request.make({ url: "/auth/logout", method: "POST", withCredentials: true })
+    Request.make({ url: "/auth/logout", method: "POST", credentials: "include", type: "text" })
       .mapOkToResult(badStatusToError)
       .tapOk(() => window.location.replace(Router.ProjectLogin()))
       .tapError(error => {
@@ -198,7 +198,7 @@ export const NavigationTabBar = ({
 
         <Pressable style={styles.tabBarItem} onPress={() => setScreen("menu")}>
           {match(route)
-            .with({ name: "AccountActivation" }, () => (
+            .with({ name: "AccountActivationArea" }, () => (
               <>
                 <Icon name="person-lock-regular" size={22} color={colors.current[500]} />
                 <Space width={12} />
@@ -234,7 +234,7 @@ export const NavigationTabBar = ({
           {shouldDisplayIdVerification && hasRequiredIdentificationLevel === false
             ? match({
                 identificationStatusInfo,
-                hasNotifications: entries.some(item => item.hasNotifications),
+                hasNotifications: entries.some(item => item.hasNotifications === true),
                 hasActivationTag: activationTag !== "none",
               })
                 .with(
@@ -273,9 +273,22 @@ export const NavigationTabBar = ({
                     activationTag={activationTag}
                     activationLinkActive={false}
                     onPress={() => setScreen("memberships")}
-                    accountMembershipId={accountMembershipId}
-                    onPressActivationLink={() => setScreen(null)}
                   />
+
+                  <Space height={24} />
+
+                  {(activationTag === "pending" || activationTag === "actionRequired") && (
+                    <LakeButton
+                      color="current"
+                      icon="checkmark-starburst-filled"
+                      onPress={() => {
+                        Router.push("AccountActivationRoot", { accountMembershipId });
+                        setScreen(null);
+                      }}
+                    >
+                      {t("accountActivation.title")}
+                    </LakeButton>
+                  )}
 
                   <Space height={24} />
 

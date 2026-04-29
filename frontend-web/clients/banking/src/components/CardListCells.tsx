@@ -8,7 +8,8 @@ import { Pressable } from "@swan-io/lake/src/components/Pressable";
 import { Space } from "@swan-io/lake/src/components/Space";
 import { G, Path, Svg } from "@swan-io/lake/src/components/Svg";
 import { Tag } from "@swan-io/lake/src/components/Tag";
-import { colors } from "@swan-io/lake/src/constants/design";
+import { colors, spacings } from "@swan-io/lake/src/constants/design";
+import { isNotNullish } from "@swan-io/lake/src/utils/nullish";
 import { Image, StyleSheet, View } from "react-native";
 import { P, match } from "ts-pattern";
 import { CardListItemFragment } from "../graphql/partner";
@@ -52,6 +53,16 @@ const styles = StyleSheet.create({
     bottom: 0,
     borderRadius: 1,
   },
+  separator: {
+    width: 1,
+    alignSelf: "stretch",
+    backgroundColor: colors.shakespear[200],
+  },
+  separatorMargin: {
+    marginHorizontal: spacings[4],
+  },
+  tagSmall: { paddingLeft: 62 }, //align with name card
+  textTagSmall: { paddingLeft: spacings[4] },
 });
 
 const cardChip = Lazy(() => (
@@ -72,6 +83,7 @@ const cardChip = Lazy(() => (
 
 export const FullNameAndCardTypeCell = ({ card }: { card: Card }) => {
   const spendingLimits = card.spendingLimits ?? [];
+  const cardHolderType = card.accountMembership.account?.holder.info.type;
 
   return (
     <Cell>
@@ -111,25 +123,68 @@ export const FullNameAndCardTypeCell = ({ card }: { card: Card }) => {
                 )}
               </>
             ))
-            .with({ type: "Virtual" }, () => (
-              <Tag color="mediumSladeBlue" icon="phone-regular">
-                {t("cards.format.virtual")}
-              </Tag>
-            ))
-            .with({ type: "VirtualAndPhysical" }, ({ physicalCard }) => (
+            .with({ type: "Virtual" }, ({ insuranceSubscription }) => (
               <>
-                <Tag color="shakespear" icon="payment-regular">
-                  {t("cards.format.virtualAndPhysical")}
+                <Tag color="mediumSladeBlue" icon="phone-regular">
+                  {t("cards.format.virtual")}
                 </Tag>
 
-                {match(physicalCard?.statusInfo.status)
-                  .with("ToRenew", "Renewed", () => (
-                    <>
-                      <Space width={12} />
-                      <Tag color="shakespear">{t("cards.expiringSoon")}</Tag>
-                    </>
-                  ))
-                  .otherwise(() => null)}
+                {isNotNullish(insuranceSubscription) && cardHolderType === "Company" && (
+                  <>
+                    <Space width={12} />
+                    <Tag color="gray" icon="shield-checkmark-regular">
+                      {match(insuranceSubscription.package.level)
+                        .with("Basic", "Standard", () => t("cardProducts.insurance.Standard"))
+                        .with("Essential", () => t("cardProducts.insurance.Essential"))
+                        .with("Custom", () => t("cardProducts.insurance.Custom"))
+                        .with("Premium", () => t("cardProducts.insurance.Premium"))
+                        .exhaustive()}
+                    </Tag>
+                  </>
+                )}
+              </>
+            ))
+            .with({ type: "VirtualAndPhysical" }, ({ physicalCard, insuranceSubscription }) => (
+              <>
+                <Tag color="mediumSladeBlue" icon="phone-regular">
+                  {t("cards.format.virtual")}
+                </Tag>
+
+                <Space width={12} />
+
+                <Tag color="shakespear" icon="payment-regular">
+                  <>
+                    <LakeText variant="smallMedium" color={colors.shakespear[700]}>
+                      {t("cards.format.physical")}
+                    </LakeText>
+
+                    {match(physicalCard?.statusInfo.status)
+                      .with("ToRenew", "Renewed", () => (
+                        <>
+                          <View style={[styles.separator, styles.separatorMargin]} />
+
+                          <LakeText variant="smallMedium" color={colors.shakespear[700]}>
+                            {t("cards.expiringSoon")}
+                          </LakeText>
+                        </>
+                      ))
+                      .otherwise(() => null)}
+                  </>
+                </Tag>
+
+                {isNotNullish(insuranceSubscription) && cardHolderType === "Company" && (
+                  <>
+                    <Space width={12} />
+                    <Tag color="gray" icon="shield-checkmark-regular">
+                      {match(insuranceSubscription.package.level)
+                        .with("Basic", "Standard", () => t("cardProducts.insurance.Standard"))
+                        .with("Essential", () => t("cardProducts.insurance.Essential"))
+                        .with("Custom", () => t("cardProducts.insurance.Custom"))
+                        .with("Premium", () => t("cardProducts.insurance.Premium"))
+                        .exhaustive()}
+                    </Tag>
+                  </>
+                )}
               </>
             ))
 
@@ -219,70 +274,13 @@ export const CardStatusCell = ({ card }: { card: Card }) => {
 
 export const CardSummaryCell = ({ card }: { card: Card }) => {
   const spendingLimits = card.spendingLimits ?? [];
+  const cardHolderType = card.accountMembership.account?.holder.info.type;
 
   return (
-    <Cell>
-      <View>
-        <Image source={{ uri: card.cardDesignUrl }} style={styles.cardDesignSmall} />
+    <Cell direction="column">
+      <Space height={12} />
 
-        {card.type === "VirtualAndPhysical" && cardChip.get()}
-      </View>
-
-      <Space width={12} />
-
-      <Box grow={1}>
-        <LakeText variant="smallMedium" color={colors.gray[700]} numberOfLines={1}>
-          {getMemberName({ accountMembership: card.accountMembership })}
-        </LakeText>
-
-        <Space height={4} />
-
-        {match(card)
-          .with(
-            {
-              spending: { amount: { value: P.string, currency: P.string } },
-              spendingLimits: P.array({ amount: { value: P.string, currency: P.string } }),
-            },
-            ({ spending, spendingLimits }) => {
-              const spendingLimit = spendingLimits[0];
-              if (spendingLimit == null) {
-                return null;
-              }
-              return (
-                <LakeHeading level="none" variant="h5" color={colors.gray[500]} numberOfLines={1}>
-                  <LakeHeading
-                    level="none"
-                    variant="h5"
-                    color={
-                      Number(spending.amount.value) >= Number(spendingLimit.amount.value)
-                        ? colors.negative[500]
-                        : colors.gray[800]
-                    }
-                  >
-                    {formatCurrency(Number(spending.amount.value), spending.amount.currency)}
-                  </LakeHeading>
-
-                  {" / "}
-
-                  {formatCurrency(
-                    Number(spendingLimit.amount.value),
-                    spendingLimit.amount.currency,
-                  )}
-                </LakeHeading>
-              );
-            },
-          )
-          .otherwise(() => null)}
-
-        {card.name != null ? (
-          <>
-            <Space height={4} />
-            <LakeText color={colors.gray[600]}>{card.name}</LakeText>
-          </>
-        ) : null}
-      </Box>
-
-      <Box direction="row">
+      <Box direction="row" style={styles.tagSmall}>
         {match(card)
           .with(
             { statusInfo: { __typename: "CardCanceledStatusInfo" } },
@@ -310,38 +308,130 @@ export const CardSummaryCell = ({ card }: { card: Card }) => {
               )}
             </>
           ))
-          .with({ type: "Virtual" }, () => (
-            <Tag
-              color="mediumSladeBlue"
-              icon="phone-regular"
-              ariaLabel={t("cards.format.virtual")}
-            />
-          ))
-          .with({ type: "VirtualAndPhysical" }, ({ physicalCard }) => (
+          .with({ type: "Virtual" }, ({ insuranceSubscription }) => (
             <>
+              <Tag
+                color="mediumSladeBlue"
+                icon="phone-regular"
+                ariaLabel={t("cards.format.virtual")}
+              />
+
+              {isNotNullish(insuranceSubscription) && cardHolderType === "Company" && (
+                <>
+                  <Space width={8} />
+
+                  <Tag color="gray" icon="shield-checkmark-regular" />
+                </>
+              )}
+            </>
+          ))
+          .with({ type: "VirtualAndPhysical" }, ({ physicalCard, insuranceSubscription }) => (
+            <>
+              <Tag
+                color="mediumSladeBlue"
+                icon="phone-regular"
+                ariaLabel={t("cards.format.virtual")}
+              />
+              <Space width={8} />
+
               <Tag
                 color="shakespear"
                 icon="payment-regular"
                 ariaLabel={t("cards.format.virtualAndPhysical")}
-              />
+              >
+                {match(physicalCard?.statusInfo.status)
+                  .with("ToRenew", "Renewed", () => (
+                    <>
+                      <View style={styles.separator} />
 
-              {match(physicalCard?.statusInfo.status)
-                .with("ToRenew", "Renewed", () => (
-                  <>
-                    <Space width={12} />
+                      <LakeText
+                        variant="smallMedium"
+                        color={colors.shakespear[700]}
+                        style={styles.textTagSmall}
+                      >
+                        {t("cards.expiringSoon")}
+                      </LakeText>
+                    </>
+                  ))
+                  .otherwise(() => undefined)}
+              </Tag>
 
-                    <Tag
-                      color="shakespear"
-                      icon="clock-alarm-regular"
-                      ariaLabel={t("cards.expiringSoon")}
-                    />
-                  </>
-                ))
-                .otherwise(() => null)}
+              {isNotNullish(insuranceSubscription) && cardHolderType === "Company" && (
+                <>
+                  <Space width={8} />
+
+                  <Tag color="gray" icon="shield-checkmark-regular" />
+                </>
+              )}
             </>
           ))
           .exhaustive()}
       </Box>
+      <Space height={4} />
+
+      <Box direction="row">
+        <View style={{ paddingTop: spacings[12] }}>
+          <Image source={{ uri: card.cardDesignUrl }} style={styles.cardDesignSmall} />
+
+          {card.type === "VirtualAndPhysical" && cardChip.get()}
+        </View>
+
+        <Space width={12} />
+
+        <Box grow={1}>
+          <LakeText variant="smallMedium" color={colors.gray[700]} numberOfLines={1}>
+            {getMemberName({ accountMembership: card.accountMembership })}
+          </LakeText>
+
+          <Space height={4} />
+
+          {match(card)
+            .with(
+              {
+                spending: { amount: { value: P.string, currency: P.string } },
+                spendingLimits: P.array({ amount: { value: P.string, currency: P.string } }),
+              },
+              ({ spending, spendingLimits }) => {
+                const spendingLimit = spendingLimits[0];
+                if (spendingLimit == null) {
+                  return null;
+                }
+                return (
+                  <LakeHeading level="none" variant="h5" color={colors.gray[500]} numberOfLines={1}>
+                    <LakeHeading
+                      level="none"
+                      variant="h5"
+                      color={
+                        Number(spending.amount.value) >= Number(spendingLimit.amount.value)
+                          ? colors.negative[500]
+                          : colors.gray[800]
+                      }
+                    >
+                      {formatCurrency(Number(spending.amount.value), spending.amount.currency)}
+                    </LakeHeading>
+
+                    {" / "}
+
+                    {formatCurrency(
+                      Number(spendingLimit.amount.value),
+                      spendingLimit.amount.currency,
+                    )}
+                  </LakeHeading>
+                );
+              },
+            )
+            .otherwise(() => null)}
+
+          {card.name != null ? (
+            <>
+              <Space height={4} />
+              <LakeText color={colors.gray[600]}>{card.name}</LakeText>
+            </>
+          ) : null}
+        </Box>
+      </Box>
+
+      <Space height={12} />
     </Cell>
   );
 };

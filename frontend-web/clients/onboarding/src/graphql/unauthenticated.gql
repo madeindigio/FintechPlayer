@@ -113,6 +113,7 @@ fragment SupportingDocument on SupportingDocument {
       filename
     }
     ... on SupportingDocumentRefusedStatusInfo {
+      reasonCode
       reason
       filename
     }
@@ -125,13 +126,10 @@ fragment OnboardingData on OnboardingInfo {
   accountCountry
   email
   language
-  redirectUrl
   tcuUrl
-  legalRepresentativeRecommendedIdentificationLevel
   oAuthRedirectParameters {
     redirectUrl
   }
-  onboardingState
   projectInfo {
     id
     accentColor
@@ -143,6 +141,9 @@ fragment OnboardingData on OnboardingInfo {
     id
     requiredSupportingDocumentPurposes {
       name
+      label
+      description
+      purposeDetails
     }
     statusInfo {
       status
@@ -168,24 +169,6 @@ fragment OnboardingData on OnboardingInfo {
 query GetOnboarding($id: ID!, $language: String!) {
   onboardingInfo(id: $id) {
     ...OnboardingData
-  }
-}
-
-query GetCompanyInfo($siren: String!) {
-  companyInfoBySiren(input: { headquarterCountry: "FR", siren: $siren }) {
-    __typename
-    ... on CompanyInfoBySirenSuccessPayload {
-      companyInfo {
-        siren
-        companyName
-        vatNumber
-        headquarters {
-          address
-          town
-          zipCode
-        }
-      }
-    }
   }
 }
 
@@ -251,12 +234,16 @@ mutation generateSupportingDocumentUploadUrl($input: GenerateSupportingDocumentU
 query SupportingDocumentCollection($supportingDocumentCollectionId: ID!) {
   supportingDocumentCollection(id: $supportingDocumentCollectionId) {
     id
+    type
     accountHolder {
       id
       name
     }
     requiredSupportingDocumentPurposes {
       name
+      label
+      description
+      purposeDetails
     }
     statusInfo {
       status

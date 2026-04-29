@@ -21,21 +21,21 @@ import { trim } from "@swan-io/lake/src/utils/string";
 import { Request } from "@swan-io/request";
 import { showToast } from "@swan-io/shared-business/src/state/toasts";
 import { translateError } from "@swan-io/shared-business/src/utils/i18n";
+import {
+  validateNullableRequired,
+  validateRequired,
+} from "@swan-io/shared-business/src/utils/validation";
 import { combineValidators, useForm } from "@swan-io/use-form";
 import { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { match, P } from "ts-pattern";
-import { AccountClosingDocument, AccountCountry, CloseAccountDocument } from "../graphql/partner";
+import { AccountClosingDocument, CloseAccountDocument } from "../graphql/partner";
 import { PermissionProvider } from "../hooks/usePermissions";
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { env } from "../utils/env";
 import { formatNestedMessage, languages, locale, setPreferredLanguage, t } from "../utils/i18n";
 import { Router } from "../utils/routes";
-import {
-  validateAccountReasonClose,
-  validateNullableRequired,
-  validateRequired,
-} from "../utils/validations";
+import { validateAccountReasonClose } from "../utils/validations";
 import { ErrorView } from "./ErrorView";
 import { TransferRegularWizard } from "./TransferRegularWizard";
 import { WizardLayout } from "./WizardLayout";
@@ -165,11 +165,12 @@ const AccountCloseReasonForm = ({ accountId }: { accountId: string }) => {
                     <View role="list">{chunk}</View>
                   </View>
                 ),
-                listitem: chunk => (
-                  <LakeText role="listitem" key={String(chunk)}>
-                    • {chunk}
-                  </LakeText>
-                ),
+                listitem: chunk =>
+                  Array.isArray(chunk) && typeof chunk[0] === "string" ? (
+                    <LakeText role="listitem" key={chunk[0]}>
+                      • {chunk[0]}
+                    </LakeText>
+                  ) : null,
               })}
             </LakeText>
           </LakeAlert>
@@ -234,11 +235,9 @@ type TransferStep = "Intro" | "Transfer" | "Later";
 
 const TransferScreen = ({
   accountMembershipId,
-  accountCountry,
   accountId,
   large,
 }: {
-  accountCountry: AccountCountry;
   accountId: string;
   accountMembershipId: string;
   large: boolean;
@@ -309,7 +308,6 @@ const TransferScreen = ({
     .with("Transfer", () => (
       <TransferRegularWizard
         large={large}
-        accountCountry={accountCountry}
         accountId={accountId}
         isAccountClosing={true}
         accountMembershipId={accountMembershipId}
@@ -331,6 +329,7 @@ export const AccountClose = ({ accountId, resourceId, status }: Props) => {
     match(data)
       .with(AsyncData.P.Done(Result.P.Ok(P.select({ user: P.nonNullable }))), ({ user }) => {
         if (
+          user.accountMemberships.pageInfo.hasNextPage === true &&
           !user.accountMemberships.edges.some(membership => membership.node.accountId === accountId)
         ) {
           setVariables({ after: user.accountMemberships.pageInfo.endCursor });
@@ -342,7 +341,7 @@ export const AccountClose = ({ accountId, resourceId, status }: Props) => {
   // Call API to extend cookie TTL
   useEffect(() => {
     const tick = () => {
-      Request.make({ url: "/api/ping", method: "POST", withCredentials: true });
+      Request.make({ url: "/api/ping", method: "POST", credentials: "include", type: "text" });
     };
     const intervalId = setInterval(tick, COOKIE_REFRESH_INTERVAL);
     // Run the ping directly on mount
@@ -443,7 +442,10 @@ export const AccountClose = ({ accountId, resourceId, status }: Props) => {
                               subtitle={t("accountClose.negativeBalance.description")}
                             >
                               <LakeButtonGroup>
-                                <LakeButton href="mailto:support@swan.io" mode="secondary">
+                                <LakeButton
+                                  href="https://support.swan.io/hc/requests/new"
+                                  mode="secondary"
+                                >
                                   {t("accountClose.negativeBalance.contactSupport")}
                                 </LakeButton>
                               </LakeButtonGroup>
@@ -454,11 +456,7 @@ export const AccountClose = ({ accountId, resourceId, status }: Props) => {
                           // as transactions are asynchronous, this approximates the success
                           // -> the resourceId includes a `_` char: it's likely a transactionId
                           // -> the status of the consent is `Accepted`
-                          if (
-                            resourceId != null &&
-                            resourceId?.includes("_") &&
-                            status === "Accepted"
-                          ) {
+                          if (resourceId?.includes("_") && status === "Accepted") {
                             return (
                               <WithCurrentColor variant="positive" style={styles.successContainer}>
                                 <EmptyView
@@ -477,7 +475,6 @@ export const AccountClose = ({ accountId, resourceId, status }: Props) => {
                               <TransferScreen
                                 accountMembershipId={accountMembershipId}
                                 accountId={accountId}
-                                accountCountry={account.country}
                                 large={large}
                               />
                             ))
@@ -528,7 +525,10 @@ export const AccountClose = ({ accountId, resourceId, status }: Props) => {
                               title={t("accountClose.suspended.title")}
                             >
                               <LakeButtonGroup>
-                                <LakeButton href="mailto:support@swan.io" mode="secondary">
+                                <LakeButton
+                                  href="https://support.swan.io/hc/requests/new"
+                                  mode="secondary"
+                                >
                                   {t("accountClose.negativeBalance.contactSupport")}
                                 </LakeButton>
                               </LakeButtonGroup>

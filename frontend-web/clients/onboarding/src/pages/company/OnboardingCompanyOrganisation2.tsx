@@ -17,6 +17,7 @@ import {
   monthlyPaymentVolumes,
 } from "@swan-io/shared-business/src/constants/business";
 import { showToast } from "@swan-io/shared-business/src/state/toasts";
+import { validateRequired } from "@swan-io/shared-business/src/utils/validation";
 import { combineValidators, useForm } from "@swan-io/use-form";
 import { useEffect } from "react";
 import { StyleSheet } from "react-native";
@@ -27,6 +28,7 @@ import { StepTitle } from "../../components/StepTitle";
 import {
   BusinessActivity,
   MonthlyPaymentVolume,
+  UnauthenticatedUpdateCompanyOnboardingInput,
   UpdateCompanyOnboardingDocument,
 } from "../../graphql/unauthenticated";
 import { locale, t } from "../../utils/i18n";
@@ -37,9 +39,7 @@ import {
   extractServerValidationErrors,
   getValidationErrorMessage,
   validateMaxLength,
-  validateRequired,
 } from "../../utils/validation";
-
 const styles = StyleSheet.create({
   textArea: {
     height: 128,
@@ -62,6 +62,7 @@ type Props = {
     fieldName: Organisation2FieldName;
     code: ServerInvalidFieldCode;
   }[];
+  forcedUpdateInputs: Partial<UnauthenticatedUpdateCompanyOnboardingInput>;
 };
 
 const businessActivitiesItems: Item<BusinessActivity>[] = businessActivities.map(
@@ -78,7 +79,7 @@ const monthlyPaymentVolumeItems: Item<MonthlyPaymentVolume>[] = monthlyPaymentVo
   }),
 );
 
-const CHARACTER_LIMITATION = 500;
+const CHARACTER_LIMITATION = 1024;
 
 export const OnboardingCompanyOrganisation2 = ({
   previousStep,
@@ -87,6 +88,7 @@ export const OnboardingCompanyOrganisation2 = ({
   initialBusinessActivity,
   initialBusinessActivityDescription,
   initialMonthlyPaymentVolume,
+  forcedUpdateInputs,
   serverValidationErrors,
 }: Props) => {
   const [updateOnboarding, updateResult] = useMutation(UpdateCompanyOnboardingDocument);
@@ -141,6 +143,7 @@ export const OnboardingCompanyOrganisation2 = ({
         updateOnboarding({
           input: {
             onboardingId,
+            ...forcedUpdateInputs,
             businessActivity,
             businessActivityDescription,
             monthlyPaymentVolume,
@@ -176,7 +179,7 @@ export const OnboardingCompanyOrganisation2 = ({
         <ResponsiveContainer breakpoint={breakpoints.medium}>
           {({ small }) => (
             <>
-              <StepTitle isMobile={small}>{t("company.step.organisation2.title")}</StepTitle>
+              <StepTitle>{t("company.step.organisation2.title")}</StepTitle>
               <Space height={small ? 24 : 32} />
 
               <Tile>

@@ -1,51 +1,25 @@
-import { isNotNullishOrEmpty } from "@swan-io/lake/src/utils/nullish";
+import { isNotNullish, isNotNullishOrEmpty } from "@swan-io/lake/src/utils/nullish";
 import { DatePickerDate } from "@swan-io/shared-business/src/components/DatePicker";
-import { isValidEmail, isValidVatNumber } from "@swan-io/shared-business/src/utils/validation";
+import { validateRequired } from "@swan-io/shared-business/src/utils/validation";
 import { Validator, combineValidators } from "@swan-io/use-form";
 import dayjs from "dayjs";
 import { P, match } from "ts-pattern";
+import { CompleteAddressWithContactInput } from "../graphql/partner";
 import { locale, t } from "./i18n";
 
-export const validateNullableRequired: Validator<string | undefined> = value => {
-  if (value == null || !value) {
-    return t("common.form.required");
-  }
-};
+const CREDITOR_NAME_RE = /^[\u0020-\u045F]+$/;
 
-export const validateArrayRequired: Validator<string[] | undefined> = value => {
-  if (value == null || value.length < 1) {
-    return t("common.form.required");
-  }
-};
-
-export const validateRequired: Validator<string> = value => {
-  if (!value) {
-    return t("common.form.required");
-  }
-};
-
-export const validateForPermissions: Validator<string> = value => {
-  if (!value) {
-    return t("common.form.required.permissions");
-  }
-};
-
-// This regex was copied from the backend to ensure that the validation is the same
-// Matches all unicode letters, spaces, dashes, apostrophes, commas, and single quotes
-const VALID_NAME_RE =
-  /^(?:[A-Za-zÀ-ÖÙ-öù-ƿǄ-ʯʹ-ʽΈ-ΊΎ-ΡΣ-ҁҊ-Ֆա-ևႠ-Ⴥა-ჺᄀ-፜፩-ᎏᵫ-ᶚḀ-῾ⴀ-ⴥ⺀-⿕ぁ-ゖゝ-ㇿ㋿-鿯鿿-ꒌꙀ-ꙮꚀ-ꚙꜦ-ꞇꞍ-ꞿꥠ-ꥼＡ-Ｚａ-ｚ.]| |'|-|Ά|Ό|,)*$/;
-
-export const validateName: Validator<string> = value => {
+export const validateMandateCreditorName: Validator<string> = value => {
   if (!value) {
     return t("common.form.required");
   }
 
   // Rule copied from the backend
-  if (value.length > 100) {
+  if (value.length > 70) {
     return t("common.form.invalidName");
   }
 
-  const isValid = VALID_NAME_RE.test(value);
+  const isValid = CREDITOR_NAME_RE.test(value);
 
   if (!isValid) {
     return t("common.form.invalidName");
@@ -59,7 +33,7 @@ export const validateBeneficiaryName: Validator<string> = value => {
   }
 
   // Rule copied from the backend
-  if (value.length > 100) {
+  if (value.length > 70) {
     return t("common.form.invalidName");
   }
 
@@ -101,12 +75,6 @@ export const validateAccountNameLength: Validator<string> = value => {
   const maxLength = 256;
   if (value.length > maxLength) {
     return t("accountDetails.invalidAccountName", { maxLength });
-  }
-};
-
-export const validateEmail: Validator<string> = value => {
-  if (!isValidEmail(value)) {
-    return t("common.form.invalidEmail");
   }
 };
 
@@ -174,7 +142,7 @@ export const validateTime =
     const hours = Number(hoursStr);
     const minutes = Number(minutesStr);
 
-    if (isNaN(hours) || isNaN(minutes)) {
+    if (Number.isNaN(hours) || Number.isNaN(minutes)) {
       return t("common.form.invalidTime");
     }
 
@@ -190,20 +158,40 @@ export const validateTime =
     }
   };
 
+export const validateAddress = (address: CompleteAddressWithContactInput) => {
+  return (
+    isNotNullish(validateAddressLine(address.addressLine1)) ||
+    isNotNullish(validateRequired(address.addressLine1)) ||
+    isNotNullish(validateCity(address.city)) ||
+    isNotNullish(validateRequired(address.city)) ||
+    isNotNullish(validatePostalCode(address.postalCode)) ||
+    isNotNullish(validateRequired(address.postalCode)) ||
+    isNotNullish(validateState(address.state ?? "")) ||
+    isNotNullish(validateRequired(address.country))
+  );
+};
+
 export const validateAddressLine: Validator<string> = value => {
   if (value.length > 38) {
-    return t("common.form.invalidAddressLine");
+    return t("common.form.invalidLength", { maxLength: 38 });
   }
 };
 
-export const validateVatNumber: Validator<string> = value => {
-  const cleaned = value.replace(/[^A-Z0-9]/gi, "");
-  if (cleaned.length === 0) {
-    return;
+export const validateCity: Validator<string> = value => {
+  if (value.length > 30) {
+    return t("common.form.invalidLength", { maxLength: 30 });
   }
+};
 
-  if (!isValidVatNumber(cleaned)) {
-    return t("common.form.invalidVatNumber");
+export const validatePostalCode: Validator<string> = value => {
+  if (value.length > 10) {
+    return t("common.form.invalidLength", { maxLength: 10 });
+  }
+};
+
+export const validateState: Validator<string> = value => {
+  if (value.length > 30) {
+    return t("common.form.invalidLength", { maxLength: 30 });
   }
 };
 
@@ -277,6 +265,26 @@ export const validateBeforeUpdatedAt = (value: string, filters: unknown) => {
   );
 };
 
+export const validateMinLength: (minLength: number) => Validator<string> = minLength => value => {
+  if (!value) {
+    return;
+  }
+
+  if (value.length < minLength) {
+    return t("common.form.invalidMinLength", { minLength });
+  }
+};
+
+export const validateMaxLength: (maxLength: number) => Validator<string> = maxLength => value => {
+  if (!value) {
+    return;
+  }
+
+  if (value.length > maxLength) {
+    return t("common.form.invalidLength", { maxLength });
+  }
+};
+
 export const validatePattern =
   (regex: string, example?: string): Validator<string> =>
   value => {
@@ -295,7 +303,7 @@ export const validateNumeric = (params?: { min?: number; max?: number }): Valida
     if (!/^-?\d+$/.test(value) && !/^-?\d+\.\d+$/.test(value)) {
       return t("common.form.number");
     }
-    const parsed = parseFloat(value);
+    const parsed = Number.parseFloat(value);
     if (params?.min != null && parsed < params.min) {
       return t("common.form.number.upperThan", { value: params.min });
     }
@@ -338,8 +346,22 @@ export const validateCMC7 = (value: string) => {
 
 const RLMC_RE = /^\d{2}$/;
 
-export const validateRLMC = (value: string) => {
-  if (!RLMC_RE.test(value)) {
+export const validateRLMC = (cmc7: string) => (rlmc: string) => {
+  if (!RLMC_RE.test(rlmc)) {
     return t("common.form.invalidRLMC");
+  }
+
+  const remainder = `${cmc7}${rlmc}`
+    .split("")
+    .reduce((remainder, char) => (remainder * 10 + Number.parseInt(char)) % 97, 0);
+
+  if (remainder !== 0) {
+    return t("common.form.invalidRLMC");
+  }
+};
+
+export const validateReference = (value: string | undefined) => {
+  if (isNotNullishOrEmpty(value) && !/^[a-zA-Z0-9-?.+,\/':() ]{1,35}$/.test(value)) {
+    return t("common.form.invalidReference");
   }
 };

@@ -25,7 +25,7 @@ import { PaymentProduct, TransactionListPageDocument } from "../graphql/partner"
 import { usePermissions } from "../hooks/usePermissions";
 import { useTransferToastWithRedirect } from "../hooks/useTransferToastWithRedirect";
 import { t } from "../utils/i18n";
-import { Router } from "../utils/routes";
+import { RouteParams, Router } from "../utils/routes";
 
 const styles = StyleSheet.create({
   root: {
@@ -52,16 +52,8 @@ const PAGE_SIZE = 20;
 
 type Props = {
   accountId: string;
-  accountMembershipId: string;
   transferConsent: Option<{ kind: "transfer" | "standingOrder" | "beneficiary"; status: string }>;
-  params: {
-    isAfterUpdatedAt?: string | undefined;
-    isBeforeUpdatedAt?: string | undefined;
-    paymentProduct?: string[] | undefined;
-    search?: string | undefined;
-    transactionStatus?: string[] | undefined;
-    statements?: string | undefined;
-  };
+  params: RouteParams<"AccountTransactionsListRoot">;
 };
 
 const DEFAULT_STATUSES = [
@@ -71,37 +63,29 @@ const DEFAULT_STATUSES = [
   "Rejected" as const,
 ];
 
-export const TransactionListPage = ({
-  accountId,
-  accountMembershipId,
-  transferConsent,
-  params,
-}: Props) => {
+export const TransactionListPage = ({ accountId, transferConsent, params }: Props) => {
+  const { accountMembershipId } = params;
+
   useTransferToastWithRedirect(transferConsent, () =>
     Router.replace("AccountTransactionsListRoot", { accountMembershipId }),
   );
-  const route = Router.useRoute(["AccountTransactionsListDetail"]);
 
+  const route = Router.useRoute(["AccountTransactionsListDetail"]);
   const { canReadAccountStatement } = usePermissions();
 
-  const filters = useMemo<TransactionFilters>(
-    () => ({
-      includeRejectedWithFallback: false,
-      isAfterUpdatedAt: params.isAfterUpdatedAt,
+  const filters = useMemo(
+    (): TransactionFilters => ({
+      amount: params.amount,
       isBeforeUpdatedAt: params.isBeforeUpdatedAt,
+      isAfterUpdatedAt: params.isAfterUpdatedAt,
       paymentProduct: params.paymentProduct?.filter(
         isMatching(P.union("CreditTransfer", "DirectDebit", "Card", "Fees", "Check")),
       ),
       status: params.transactionStatus?.filter(
-        isMatching(P.union("Booked", "Canceled", "Pending", "Rejected", "Released")),
+        isMatching(P.union("Booked", "Canceled", "Pending", "Rejected", "Released", "Deferred")),
       ),
     }),
-    [
-      params.isAfterUpdatedAt,
-      params.isBeforeUpdatedAt,
-      params.paymentProduct,
-      params.transactionStatus,
-    ],
+    [params],
   );
 
   const paymentProduct = useMemo(() => {
@@ -110,7 +94,7 @@ export const TransactionListPage = ({
       const items = match(item)
         .returnType<PaymentProduct[]>()
         .with("Card", "Fees", "Check", value => [value])
-        .with("CreditTransfer", () => ["SEPACreditTransfer", "InternalCreditTransfer"])
+        .with("CreditTransfer", () => ["SEPACreditTransfer", "InternationalCreditTransfer"])
         .with("DirectDebit", () => ["SEPADirectDebit", "InternalDirectDebit"])
         .exhaustive();
       actualPaymentProduct.push(...items);
@@ -129,6 +113,7 @@ export const TransactionListPage = ({
       ...filters,
       paymentProduct,
       search,
+      includeRejectedWithFallback: false,
       status: filters.status ?? DEFAULT_STATUSES,
     },
     canQueryCardOnTransaction,
@@ -136,7 +121,7 @@ export const TransactionListPage = ({
 
   const [activeTransactionId, setActiveTransactionId] = useState<string | null>(null);
 
-  const panelRef = useRef<FocusTrapRef | null>(null);
+  const panelRef = useRef<FocusTrapRef>(null);
 
   const onActiveRowChange = useCallback(
     (element: HTMLElement) => panelRef.current?.setInitiallyFocusedElement(element),
@@ -268,8 +253,9 @@ export const TransactionListPage = ({
                                             accountMembershipId,
                                           });
                                         }}
-                                        children={null}
-                                      />
+                                      >
+                                        {null}
+                                      </LakeButton>
                                     </Box>
 
                                     <TransactionDetail

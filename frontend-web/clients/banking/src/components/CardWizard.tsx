@@ -16,7 +16,8 @@ import { showToast } from "@swan-io/shared-business/src/state/toasts";
 import { translateError } from "@swan-io/shared-business/src/utils/i18n";
 import { useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { P, match } from "ts-pattern";
+import { useFlag } from "react-tggl-client";
+import { match, P } from "ts-pattern";
 import {
   AccountMembershipFragment,
   AddCardDocument,
@@ -30,10 +31,10 @@ import {
   CreateMultiConsentDocument,
   GetCardProductsDocument,
   GetCardProductsQuery,
-  SpendingLimitInput,
 } from "../graphql/partner";
 import { t } from "../utils/i18n";
 import { Router } from "../utils/routes";
+import { deriveSpendingLimitInput, SpendingLimitValue } from "./CardItemSpendingLimit";
 import { CardWizardDelivery, CardWizardDeliveryRef } from "./CardWizardDelivery";
 import { CardFormat, CardWizardFormat, CardWizardFormatRef } from "./CardWizardFormat";
 import {
@@ -47,6 +48,7 @@ import {
 import { CardWizardMembers, CardWizardMembersRef, Member } from "./CardWizardMembers";
 import { CardWizardProduct, CardWizardProductRef } from "./CardWizardProduct";
 import { CardWizardSettings, CardWizardSettingsRef } from "./CardWizardSettings";
+import { CardWizardSpendingLimit, CardWizardSpendingLimitRef } from "./CardWizardSpendingLimit";
 import { ErrorView } from "./ErrorView";
 
 type CardProduct = NonNullable<GetCardProductsQuery["projectInfo"]["cardProducts"]>[number];
@@ -55,7 +57,7 @@ type StepDefault = {
   cardName?: string;
   cardProduct?: CardProduct;
   cardFormat?: CardFormat;
-  spendingLimit?: SpendingLimitInput;
+  spendingLimit?: SpendingLimitValue;
   eCommerce?: boolean;
   withdrawal?: boolean;
   international?: boolean;
@@ -67,12 +69,13 @@ type Step = StepDefault &
   (
     | { name: "CardProductType" }
     | { name: "CardProductFormat"; cardProduct: CardProduct }
+    | { name: "CardProductSpendingLimit"; cardProduct: CardProduct; cardFormat: CardFormat }
     | { name: "CardProductSettings"; cardProduct: CardProduct; cardFormat: CardFormat }
     | {
         name: "CardProductMembers";
         cardProduct: CardProduct;
         cardFormat: CardFormat;
-        spendingLimit: SpendingLimitInput;
+        spendingLimit: SpendingLimitValue;
         cardName?: string;
         eCommerce: boolean;
         withdrawal: boolean;
@@ -83,7 +86,7 @@ type Step = StepDefault &
         name: "CardProductDelivery";
         cardProduct: CardProduct;
         cardFormat: CardFormat;
-        spendingLimit: SpendingLimitInput;
+        spendingLimit: SpendingLimitValue;
         cardName?: string;
         eCommerce: boolean;
         withdrawal: boolean;
@@ -95,7 +98,7 @@ type Step = StepDefault &
         name: "CardProductGroupedDelivery";
         cardProduct: CardProduct;
         cardFormat: CardFormat;
-        spendingLimit: SpendingLimitInput;
+        spendingLimit: SpendingLimitValue;
         cardName?: string;
         eCommerce: boolean;
         withdrawal: boolean;
@@ -107,7 +110,7 @@ type Step = StepDefault &
         name: "CardProductIndividualDelivery";
         cardProduct: CardProduct;
         cardFormat: CardFormat;
-        spendingLimit: SpendingLimitInput;
+        spendingLimit: SpendingLimitValue;
         cardName?: string;
         eCommerce: boolean;
         withdrawal: boolean;
@@ -204,9 +207,14 @@ export const CardWizard = ({
   preselectedAccountMembership,
 }: Props) => {
   const [data, { setVariables }] = useQuery(GetCardProductsDocument, {
+    accountId: accountMembership.accountId,
     accountMembershipId: accountMembership.id,
     first: 20,
   });
+
+  // Feature flag used only during deferred debit card development
+  // Should be removed once the feature is fully developed
+  const showDeferredDebitCard = useFlag("deferredDebitCard", false);
 
   const [step, setStep] = useState<Step>(INITIAL_STEP);
 
@@ -282,7 +290,7 @@ export const CardWizard = ({
 
     const card = input.cards[0];
 
-    if (input.cards.length === 1 && card != undefined) {
+    if (input.cards.length === 1 && card != null) {
       return addSingleUseCard({
         input: {
           name: card.name,
@@ -374,6 +382,7 @@ export const CardWizard = ({
 
   const cardWizardProductRef = useRef<CardWizardProductRef>(null);
   const cardWizardFormatRef = useRef<CardWizardFormatRef>(null);
+  const cardWizardSpendingLimitRef = useRef<CardWizardSpendingLimitRef>(null);
   const cardWizardSettingsRef = useRef<CardWizardSettingsRef>(null);
   const cardWizardMembersRef = useRef<CardWizardMembersRef>(null);
   const cardWizardDeliveryRef = useRef<CardWizardDeliveryRef>(null);
@@ -388,17 +397,30 @@ export const CardWizard = ({
     .with(AsyncData.P.NotAsked, AsyncData.P.Loading, () => <LoadingView />)
     .with(AsyncData.P.Done(Result.P.Error(P.select())), error => <ErrorView error={error} />)
     .with(AsyncData.P.Done(Result.P.Ok(P.select())), data => {
-      const cardProducts = data?.projectInfo.cardProducts ?? [];
+      const isLegalRepresentative =
+        data.accountMembership?.account?.legalRepresentativeMembership.id === accountMembership.id;
+      const isCompany = data.accountMembership?.accountHolderType === "Company";
+      const projectCardProducts = data?.projectInfo.cardProducts ?? [];
+      // Individual accounts can only order debit cards and cards with no insurances
+
+      const cardProducts = isCompany
+        ? projectCardProducts.filter(
+            cardProduct => showDeferredDebitCard || cardProduct.fundingType === "Debit",
+          )
+        : projectCardProducts.filter(
+            cardProduct =>
+              cardProduct.fundingType === "Debit" &&
+              cardProduct.insurance?.defaultInsurancePackage == null,
+          );
 
       const canOrderPhysicalCard = step.cardFormat === "VirtualAndPhysical";
 
       const hasMoreThanOneMember =
         preselectedAccountMembership != null || data.accountMembership?.account == null
           ? false
-          : (data.accountMembership?.account?.allMemberships.totalCount ?? 0) > 1;
+          : (data.allMemberships.totalCount ?? 0) > 1;
 
-      const account = data.accountMembership?.account;
-      const members = data.accountMembership?.account?.memberships;
+      const accountMemberships = data.accountMemberships;
 
       return (
         <ResponsiveContainer style={styles.root} breakpoint={breakpoints.medium}>
@@ -426,6 +448,10 @@ export const CardWizard = ({
 
                     <Title visible={step.name === "CardProductFormat"}>
                       {t("cardWizard.header.cardFormat")}
+                    </Title>
+
+                    <Title visible={step.name === "CardProductSpendingLimit"}>
+                      {t("card.settings.spendingLimit")}
                     </Title>
 
                     <Title visible={step.name === "CardProductSettings"}>
@@ -468,12 +494,12 @@ export const CardWizard = ({
                     international,
                     nonMainCurrencyTransactions,
                   }) =>
-                    members != null && (
+                    hasMoreThanOneMember && (
                       <CardWizardMembers
                         ref={cardWizardMembersRef}
                         initialMemberships={memberships}
                         setAfter={after => setVariables({ after })}
-                        account={account}
+                        accountMemberships={accountMemberships}
                         style={styles.container}
                         contentContainerStyle={[styles.contents, large && styles.desktopContents]}
                         onSubmit={memberships => {
@@ -519,7 +545,7 @@ export const CardWizard = ({
                                   return {
                                     name: cardName,
                                     accountMembershipId: member.id,
-                                    spendingLimit,
+                                    spendingLimit: deriveSpendingLimitInput(spendingLimit),
                                   };
                                 }),
                               });
@@ -534,7 +560,7 @@ export const CardWizard = ({
                                 cards: memberships.map(member => {
                                   return {
                                     accountMembershipId: member.id,
-                                    spendingLimit,
+                                    spendingLimit: deriveSpendingLimitInput(spendingLimit),
                                     name: cardName,
                                     eCommerce,
                                     withdrawal,
@@ -557,11 +583,11 @@ export const CardWizard = ({
                     {match(step)
                       .with({ name: "CardProductType" }, ({ cardProduct }) => (
                         <CardWizardProduct
-                          accountHolderType={
-                            data?.accountMembership?.account?.holder.info.__typename ===
-                            "AccountHolderCompanyInfo"
-                              ? "Company"
-                              : "Individual"
+                          accountHolderType={data.accountMembership?.accountHolderType}
+                          accountId={accountMembership.accountId}
+                          isLegalRepresentative={isLegalRepresentative}
+                          creditLimitStatus={
+                            data.accountMembership?.account?.creditLimitSettings?.statusInfo.status
                           }
                           ref={cardWizardProductRef}
                           cardProducts={cardProducts}
@@ -577,10 +603,35 @@ export const CardWizard = ({
                           cardProduct={cardProduct}
                           initialCardFormat={cardFormat}
                           onSubmit={cardFormat =>
-                            setStep({ name: "CardProductSettings", cardProduct, cardFormat })
+                            cardFormat === "SingleUseVirtual"
+                              ? setStep({ name: "CardProductSettings", cardProduct, cardFormat })
+                              : setStep({
+                                  name: "CardProductSpendingLimit",
+                                  cardProduct,
+                                  cardFormat,
+                                })
                           }
                         />
                       ))
+                      .with(
+                        { name: "CardProductSpendingLimit" },
+                        ({ cardProduct, cardFormat, spendingLimit }) => (
+                          <CardWizardSpendingLimit
+                            ref={cardWizardSpendingLimitRef}
+                            cardProduct={cardProduct}
+                            initialSpendingLimit={spendingLimit}
+                            accountHolder={accountMembership.account?.holder}
+                            onSubmit={spendingLimit =>
+                              setStep({
+                                name: "CardProductSettings",
+                                cardProduct,
+                                cardFormat,
+                                spendingLimit,
+                              })
+                            }
+                          />
+                        ),
+                      )
                       .with(
                         { name: "CardProductSettings" },
                         ({
@@ -607,19 +658,22 @@ export const CardWizard = ({
                             }}
                             accountHolder={accountMembership.account?.holder}
                             onSubmit={cardSettings => {
+                              const { spendingLimit, ...restCardSettings } = cardSettings;
+
                               if (hasMoreThanOneMember) {
                                 setStep({
                                   name: "CardProductMembers",
                                   cardProduct,
                                   cardFormat,
-                                  ...cardSettings,
+                                  spendingLimit,
+                                  ...restCardSettings,
                                 });
                               } else {
                                 const memberships =
                                   preselectedAccountMembership != null
                                     ? [preselectedAccountMembership]
-                                    : account != null
-                                      ? (members?.edges.map(({ node }) => node) ?? [])
+                                    : hasMoreThanOneMember
+                                      ? (accountMemberships.edges.map(({ node }) => node) ?? [])
                                       : [accountMembership];
 
                                 if (canOrderPhysicalCard) {
@@ -628,7 +682,8 @@ export const CardWizard = ({
                                     cardProduct,
                                     cardFormat,
                                     memberships,
-                                    ...cardSettings,
+                                    spendingLimit,
+                                    ...restCardSettings,
                                   });
                                 } else {
                                   if (cardFormat === "SingleUseVirtual") {
@@ -643,7 +698,7 @@ export const CardWizard = ({
                                         return {
                                           name: cardSettings.cardName,
                                           accountMembershipId: accountMembership.id,
-                                          spendingLimit: cardSettings.spendingLimit,
+                                          spendingLimit: deriveSpendingLimitInput(spendingLimit),
                                         };
                                       }),
                                     });
@@ -658,7 +713,7 @@ export const CardWizard = ({
                                       cards: memberships.map(membership => {
                                         return {
                                           accountMembershipId: membership.id,
-                                          spendingLimit: cardSettings.spendingLimit,
+                                          spendingLimit: deriveSpendingLimitInput(spendingLimit),
                                           name: cardSettings.cardName,
                                           eCommerce: cardSettings.eCommerce,
                                           withdrawal: cardSettings.withdrawal,
@@ -784,7 +839,7 @@ export const CardWizard = ({
                                     groupDeliveryAddress: groupedDeliveryConfig.address,
                                     cards: groupedDeliveryConfig.members.map(membership => ({
                                       accountMembershipId: membership.id,
-                                      spendingLimit,
+                                      spendingLimit: deriveSpendingLimitInput(spendingLimit),
                                       eCommerce,
                                       withdrawal,
                                       name: cardName,
@@ -891,7 +946,7 @@ export const CardWizard = ({
                                       },
                                     }) => ({
                                       accountMembershipId: member.id,
-                                      spendingLimit,
+                                      spendingLimit: deriveSpendingLimitInput(spendingLimit),
                                       eCommerce,
                                       name: cardName,
                                       withdrawal,
@@ -927,8 +982,22 @@ export const CardWizard = ({
                               ? onPressClose?.()
                               : setStep({ name: "CardProductType", ...rest }),
                           )
-                          .with({ name: "CardProductSettings" }, ({ cardProduct, name, ...rest }) =>
-                            setStep({ name: "CardProductFormat", cardProduct, ...rest }),
+                          .with(
+                            { name: "CardProductSpendingLimit" },
+                            ({ cardProduct, name, ...rest }) =>
+                              setStep({ name: "CardProductFormat", cardProduct, ...rest }),
+                          )
+                          .with(
+                            { name: "CardProductSettings" },
+                            ({ cardProduct, cardFormat, name, ...rest }) =>
+                              cardFormat === "SingleUseVirtual"
+                                ? setStep({ name: "CardProductFormat", cardProduct, ...rest })
+                                : setStep({
+                                    name: "CardProductSpendingLimit",
+                                    cardProduct,
+                                    cardFormat,
+                                    ...rest,
+                                  }),
                           )
                           .with({ name: "CardProductMembers" }, ({ name, ...rest }) =>
                             setStep({ name: "CardProductSettings", ...rest }),
@@ -974,6 +1043,9 @@ export const CardWizard = ({
                           })
                           .with("CardProductFormat", () => {
                             cardWizardFormatRef.current?.submit();
+                          })
+                          .with("CardProductSpendingLimit", () => {
+                            cardWizardSpendingLimitRef.current?.submit();
                           })
                           .with("CardProductSettings", () => {
                             cardWizardSettingsRef.current?.submit();

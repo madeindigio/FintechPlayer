@@ -234,7 +234,7 @@ export const ProfilePage = ({ additionalInfo, email, accentColor }: Props) => {
 
                   <LakeButtonGroup paddingBottom={0}>
                     <LakeButton
-                      href="https://digio.es"
+                      href="https://support.swan.io"
                       hrefAttrs={{ target: "blank" }}
                       mode="secondary"
                       color="gray"

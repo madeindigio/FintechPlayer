@@ -11,12 +11,13 @@ import {
   allCountries,
   isCountryCCA3,
 } from "@swan-io/shared-business/src/constants/countries";
+import { validateRequired } from "@swan-io/shared-business/src/utils/validation";
 import { combineValidators, useForm } from "@swan-io/use-form";
-import { forwardRef, useImperativeHandle, useState } from "react";
+import { Ref, useImperativeHandle, useState } from "react";
 import { P, match } from "ts-pattern";
 import { CompleteAddressInput } from "../graphql/partner";
 import { locale, t } from "../utils/i18n";
-import { validateAddressLine, validateRequired } from "../utils/validations";
+import { validateAddressLine, validateCity, validatePostalCode } from "../utils/validations";
 
 export type CardItemPhysicalDeliveryAddressFormRef = {
   submit: () => void;
@@ -32,14 +33,16 @@ export type Address = {
 };
 
 type Props = {
+  ref?: Ref<CardItemPhysicalDeliveryAddressFormRef>;
   initialEditorState?: Address;
   onSubmit: (editorState: CompleteAddressInput) => Future<unknown>;
 };
 
-export const CardItemPhysicalDeliveryAddressForm = forwardRef<
-  CardItemPhysicalDeliveryAddressFormRef,
-  Props
->(({ initialEditorState, onSubmit }, ref) => {
+export const CardItemPhysicalDeliveryAddressForm = ({
+  ref,
+  initialEditorState,
+  onSubmit,
+}: Props) => {
   const [isLoading, setIsLoading] = useState(false);
 
   const { Field, FieldsListener, setFieldValue, submitForm } = useForm({
@@ -49,14 +52,15 @@ export const CardItemPhysicalDeliveryAddressForm = forwardRef<
     },
     addressLine2: {
       initialValue: initialEditorState?.addressLine2 ?? "",
+      validate: validateAddressLine,
     },
     postalCode: {
       initialValue: initialEditorState?.postalCode ?? "",
-      validate: validateRequired,
+      validate: combineValidators(validateRequired, validatePostalCode),
     },
     city: {
       initialValue: initialEditorState?.city ?? "",
-      validate: validateRequired,
+      validate: combineValidators(validateRequired, validateCity),
     },
     country: {
       initialValue: match(initialEditorState?.country)
@@ -131,7 +135,7 @@ export const CardItemPhysicalDeliveryAddressForm = forwardRef<
                       }}
                       language={locale.language}
                       placeholder={t("addressInput.placeholder")}
-                      emptyResultText={t("common.noResults")}
+                      emptyResult={t("common.noResults")}
                       error={error}
                       id={id}
                       disabled={isLoading}
@@ -205,4 +209,4 @@ export const CardItemPhysicalDeliveryAddressForm = forwardRef<
       </Field>
     </>
   );
-});
+};

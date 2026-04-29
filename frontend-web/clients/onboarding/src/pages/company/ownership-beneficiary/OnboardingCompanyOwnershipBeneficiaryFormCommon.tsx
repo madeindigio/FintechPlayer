@@ -14,14 +14,17 @@ import { BirthdatePicker } from "@swan-io/shared-business/src/components/Birthda
 import { CountryPicker } from "@swan-io/shared-business/src/components/CountryPicker";
 import { PlacekitCityInput } from "@swan-io/shared-business/src/components/PlacekitCityInput";
 import { CountryCCA3, allCountries } from "@swan-io/shared-business/src/constants/countries";
-import { validateRequired } from "@swan-io/shared-business/src/utils/validation";
+import {
+  validateName,
+  validateNullableRequired,
+  validateRequired,
+} from "@swan-io/shared-business/src/utils/validation";
 import { combineValidators, useForm } from "@swan-io/use-form";
-import { forwardRef, useImperativeHandle } from "react";
+import { Ref, useImperativeHandle } from "react";
 import { StyleSheet, View } from "react-native";
 import { P, match } from "ts-pattern";
 import { AccountCountry } from "../../../graphql/unauthenticated";
 import { t } from "../../../utils/i18n";
-import { validateName } from "../../../utils/validation";
 
 const styles = StyleSheet.create({
   inputContainer: {
@@ -66,7 +69,12 @@ export type Input = {
   totalCapitalPercentage?: number;
 };
 
+export type OnboardingCompanyOwnershipBeneficiaryFormCommonRef = {
+  submit: () => void;
+};
+
 type Props = {
+  ref?: Ref<OnboardingCompanyOwnershipBeneficiaryFormCommonRef>;
   placekitApiKey: string | undefined;
   accountCountry: AccountCountry;
   companyCountry: CountryCCA3;
@@ -74,16 +82,16 @@ type Props = {
   onSave: (input: Input) => void | Promise<void>;
 };
 
-export type OnboardingCompanyOwnershipBeneficiaryFormCommonRef = {
-  submit: () => void;
-};
-
-export const OnboardingCompanyOwnershipBeneficiaryFormCommon = forwardRef<
-  OnboardingCompanyOwnershipBeneficiaryFormCommonRef,
-  Props
->(({ placekitApiKey, accountCountry, companyCountry, initialValues, onSave }, ref) => {
+export const OnboardingCompanyOwnershipBeneficiaryFormCommon = ({
+  ref,
+  placekitApiKey,
+  accountCountry,
+  companyCountry,
+  initialValues,
+  onSave,
+}: Props) => {
   const isBirthInfoRequired = match(accountCountry)
-    .with("ESP", "FRA", "NLD", "ITA", () => true)
+    .with("ESP", "FRA", "NLD", "ITA", "BEL", () => true)
     .otherwise(() => false);
 
   const { Field, FieldsListener, setFieldValue, submitForm } = useForm<FormValues>({
@@ -99,6 +107,7 @@ export const OnboardingCompanyOwnershipBeneficiaryFormCommon = forwardRef<
     },
     birthDate: {
       initialValue: initialValues.birthDate ?? undefined,
+      validate: isBirthInfoRequired ? validateNullableRequired : undefined,
     },
     birthCountryCode: {
       initialValue: initialValues.birthCountryCode ?? companyCountry,
@@ -437,4 +446,4 @@ export const OnboardingCompanyOwnershipBeneficiaryFormCommon = forwardRef<
       )}
     </ResponsiveContainer>
   );
-});
+};

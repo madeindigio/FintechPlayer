@@ -4,8 +4,6 @@ import { P, match } from "ts-pattern";
 import { projectConfiguration } from "./projectId";
 
 export const routes = {
-  PopupCallback: "/swanpopupcallback?:redirectUrl&:accountMembershipId&:projectId",
-
   ...createGroup(
     "SupportingDocumentCollection",
     "/supporting-document-collection/:supportingDocumentCollectionId",
@@ -16,14 +14,28 @@ export const routes = {
     },
   ),
 
+  ...createGroup("ChangeAdmin", "/change-account-admin/:requestId", {
+    Area: "/*",
+    Root: "/",
+    Context1: "/context-1",
+    Context2: "/context-2",
+    Requester: "/requester",
+    NewAdmin: "/new-admin",
+    Documents: "/documents",
+    Confirm: "/confirm",
+  }),
+
   ...createGroup("", "/onboardings/:onboardingId", {
     Root: "/",
     Area: "/*",
     Email: "/email",
+    Address: "/address",
     Location: "/location",
     Details: "/details",
+    Activity: "/activity",
     Presentation: "/presentation",
     Registration: "/registration",
+    Organisation: "/organisation",
     Organisation1: "/organisation-1",
     Organisation2: "/organisation-2",
     Ownership: "/ownership",
@@ -31,6 +43,18 @@ export const routes = {
     Finalize: "/finalize",
   }),
 } as const;
+
+export const changeAdminRoutes = [
+  "ChangeAdminRoot",
+  "ChangeAdminContext1",
+  "ChangeAdminContext2",
+  "ChangeAdminRequester",
+  "ChangeAdminNewAdmin",
+  "ChangeAdminDocuments",
+  "ChangeAdminConfirm",
+] as const;
+
+export type ChangeAdminRoute = (typeof changeAdminRoutes)[number];
 
 export const individualOnboardingRoutes = [
   "Root",
@@ -41,6 +65,10 @@ export const individualOnboardingRoutes = [
 ] as const;
 
 export type IndividualOnboardingRoute = (typeof individualOnboardingRoutes)[number];
+
+export const individualOnboardingRoutesV2 = ["Root", "Activity", "Finalize"] as const;
+
+export type IndividualOnboardingRouteV2 = (typeof individualOnboardingRoutesV2)[number];
 
 export const companyOnboardingRoutes = [
   "Root",
@@ -54,6 +82,18 @@ export const companyOnboardingRoutes = [
 ] as const;
 
 export type CompanyOnboardingRoute = (typeof companyOnboardingRoutes)[number];
+
+export const companyOnboardingRoutesV2 = [
+  "Root",
+  "Details",
+  "Organisation",
+  "Activity",
+  "Ownership",
+  "Documents",
+  "Finalize",
+] as const;
+
+export type CompanyOnboardingRouteV2 = (typeof companyOnboardingRoutesV2)[number];
 
 export const Router = createRouter(routes, {
   basePath: match(projectConfiguration)

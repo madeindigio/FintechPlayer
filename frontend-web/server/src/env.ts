@@ -16,10 +16,13 @@ export const env = validate({
     OAUTH_CLIENT_ID: string,
     OAUTH_CLIENT_SECRET: string,
 
+    TGGL_SERVER_KEY: string,
+
     COOKIE_KEY: buffer,
 
     BANKING_URL: url,
     ONBOARDING_URL: url,
     PAYMENT_URL: url,
+    IDENTITY_URL: url,
   },
 });

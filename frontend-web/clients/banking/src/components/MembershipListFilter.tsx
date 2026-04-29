@@ -1,101 +1,76 @@
-import { AsyncData, Dict, Future, Result } from "@swan-io/boxed";
+import { AsyncData, Future, Result } from "@swan-io/boxed";
 import { Box } from "@swan-io/lake/src/components/Box";
-import { Fill } from "@swan-io/lake/src/components/Fill";
-import { FilterChooser } from "@swan-io/lake/src/components/FilterChooser";
 import { LakeButton } from "@swan-io/lake/src/components/LakeButton";
-import { LakeSearchField } from "@swan-io/lake/src/components/LakeSearchField";
+import { Separator } from "@swan-io/lake/src/components/Separator";
 import { Space } from "@swan-io/lake/src/components/Space";
 import { Tag } from "@swan-io/lake/src/components/Tag";
-import { stubFalse, stubTrue } from "@swan-io/lake/src/utils/function";
-import { emptyToUndefined, isNotNullish } from "@swan-io/lake/src/utils/nullish";
-import {
-  FilterCheckboxDef,
-  FilterRadioDef,
-  FiltersStack,
-  FiltersState,
-} from "@swan-io/shared-business/src/components/Filters";
-import { ReactNode, useEffect, useMemo, useState } from "react";
-import { P, match } from "ts-pattern";
+import { identity } from "@swan-io/lake/src/utils/function";
+import { emptyToUndefined } from "@swan-io/lake/src/utils/nullish";
+import { ReactNode, useState } from "react";
+import { match, P } from "ts-pattern";
 import { AccountMembershipStatus } from "../graphql/partner";
 import { t } from "../utils/i18n";
+import { filter, Filters, FiltersState } from "./Filters";
+import { FiltersContainer } from "./FiltersMobileContainer";
+import { SearchInput } from "./SearchInput";
 
-const statusFilter: FilterCheckboxDef<AccountMembershipStatus> = {
-  type: "checkbox",
-  label: t("membershipList.status"),
-  checkAllLabel: t("common.filters.all"),
-  items: [
-    { value: "Enabled", label: t("memberships.status.active") },
-    { value: "InvitationSent", label: t("memberships.status.invitationSent") },
-    { value: "Suspended", label: t("memberships.status.temporarilyBlocked") },
-    { value: "BindingUserError", label: t("memberships.status.conflictAndLimitedAccess") },
-  ],
-};
+type BooleanParam = "true" | "false";
 
-const canInitiatePaymentsFilter: FilterRadioDef<boolean | undefined> = {
-  type: "radio",
-  label: t("membershipList.canInitiatePayments"),
-  items: [
-    { value: undefined, label: t("common.filters.all") },
-    { value: true, label: t("common.true") },
-    { value: false, label: t("common.false") },
-  ],
-};
-
-const canManageAccountMembershipFilter: FilterRadioDef<boolean | undefined> = {
-  type: "radio",
-  label: t("membershipList.canManageAccountMembership"),
-  items: [
-    { value: undefined, label: t("common.filters.all") },
-    { value: true, label: t("common.true") },
-    { value: false, label: t("common.false") },
-  ],
-};
-
-const canManageBeneficiariesFilter: FilterRadioDef<boolean | undefined> = {
-  type: "radio",
-  label: t("membershipList.canManageBeneficiaries"),
-  items: [
-    { value: undefined, label: t("common.filters.all") },
-    { value: true, label: t("common.true") },
-    { value: false, label: t("common.false") },
-  ],
-};
-
-const canViewAccountFilter: FilterRadioDef<boolean | undefined> = {
-  type: "radio",
-  label: t("membershipList.canViewAccount"),
-  items: [
-    { value: undefined, label: t("common.filters.all") },
-    { value: true, label: t("common.true") },
-    { value: false, label: t("common.false") },
-  ],
-};
-
-const canManageCardsFilter: FilterRadioDef<boolean | undefined> = {
-  type: "radio",
-  label: t("membershipList.canManageCards"),
-  items: [
-    { value: undefined, label: t("common.filters.all") },
-    { value: true, label: t("common.true") },
-    { value: false, label: t("common.false") },
-  ],
-};
+const booleanParamItems = [
+  { value: "true" as const, label: t("common.true") },
+  { value: "false" as const, label: t("common.false") },
+];
 
 const filtersDefinition = {
-  statuses: statusFilter,
-  canInitiatePayments: canInitiatePaymentsFilter,
-  canManageAccountMembership: canManageAccountMembershipFilter,
-  canManageBeneficiaries: canManageBeneficiariesFilter,
-  canViewAccount: canViewAccountFilter,
-  canManageCards: canManageCardsFilter,
+  statuses: filter.checkbox<AccountMembershipStatus>({
+    label: t("membershipList.status"),
+    items: [
+      { value: "Enabled", label: t("memberships.status.active") },
+      { value: "InvitationSent", label: t("memberships.status.invitationSent") },
+      { value: "Suspended", label: t("memberships.status.temporarilyBlocked") },
+      { value: "BindingUserError", label: t("memberships.status.conflictAndLimitedAccess") },
+    ],
+  }),
+  canInitiatePayments: filter.radio({
+    isInMoreFiltersByDefault: true,
+    label: t("membershipList.canInitiatePayments"),
+    items: booleanParamItems,
+  }),
+  canManageAccountMembership: filter.radio({
+    isInMoreFiltersByDefault: true,
+    label: t("membershipList.canManageAccountMembership"),
+    items: booleanParamItems,
+  }),
+  canManageBeneficiaries: filter.radio({
+    isInMoreFiltersByDefault: true,
+    label: t("membershipList.canManageBeneficiaries"),
+    items: booleanParamItems,
+  }),
+  canViewAccount: filter.radio({
+    isInMoreFiltersByDefault: true,
+    label: t("membershipList.canViewAccount"),
+    items: booleanParamItems,
+  }),
+  canManageCards: filter.radio({
+    isInMoreFiltersByDefault: true,
+    label: t("membershipList.canManageCards"),
+    items: booleanParamItems,
+  }),
 };
 
 export type MembershipFilters = FiltersState<typeof filtersDefinition>;
 
 export const parseBooleanParam = (value: string | undefined) =>
   match(value)
-    .with("true", stubTrue)
-    .with("false", stubFalse)
+    .returnType<BooleanParam | undefined>()
+    .with("true", "false", identity)
+    .otherwise(() => undefined);
+
+export const booleanParamToBoolean = (value: BooleanParam | undefined) =>
+  match(value)
+    .returnType<boolean | undefined>()
+    .with("true", () => true)
+    .with("false", () => false)
     .otherwise(() => undefined);
 
 type MembershipListFilterProps = {
@@ -110,17 +85,7 @@ type MembershipListFilterProps = {
   onChangeSearch: (search: string | undefined) => void;
 };
 
-const defaultAvailableFilters = [
-  "statuses",
-  "canInitiatePayments",
-  "canManageAccountMembership",
-  "canManageBeneficiaries",
-  "canViewAccount",
-  "canManageCards",
-] as const;
-
 export const MembershipListFilter = ({
-  available = defaultAvailableFilters,
   children,
   large = true,
   filters,
@@ -130,83 +95,24 @@ export const MembershipListFilter = ({
   onRefresh,
   onChangeSearch,
 }: MembershipListFilterProps) => {
-  const availableSet = useMemo(() => new Set(available), [available]);
-
-  const availableFilters: { name: keyof MembershipFilters; label: string }[] = useMemo(
-    () =>
-      (
-        [
-          {
-            name: "statuses",
-            label: t("membershipList.status"),
-          },
-          {
-            name: "canInitiatePayments",
-            label: t("membershipList.canInitiatePayments"),
-          },
-          {
-            name: "canManageAccountMembership",
-            label: t("membershipList.canManageAccountMembership"),
-          },
-          {
-            name: "canManageBeneficiaries",
-            label: t("membershipList.canManageBeneficiaries"),
-          },
-          {
-            name: "canViewAccount",
-            label: t("membershipList.canViewAccount"),
-          },
-          {
-            name: "canManageCards",
-            label: t("membershipList.canManageCards"),
-          },
-        ] as const
-      ).filter(item => availableSet.has(item.name)),
-    [availableSet],
-  );
-
-  const [openFilters, setOpenFilters] = useState(() =>
-    Dict.entries(filters)
-      .filter(([, value]) => isNotNullish(value))
-      .map(([name]) => name),
-  );
-
-  useEffect(() => {
-    setOpenFilters(openFilters => {
-      const currentlyOpenFilters = new Set(openFilters);
-      const openFiltersNotYetInState = Dict.entries(filters)
-        .filter(([name, value]) => isNotNullish(value) && !currentlyOpenFilters.has(name))
-        .map(([name]) => name);
-      return [...openFilters, ...openFiltersNotYetInState];
-    });
-  }, [filters]);
-
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   return (
     <>
       <Box direction="row" alignItems="center">
-        {children != null ? (
+        {children != null && (
           <>
             {children}
-
-            <Space width={16} />
+            <Separator horizontal={true} space={12} />
           </>
-        ) : null}
+        )}
 
-        <FilterChooser
-          filters={filters}
-          openFilters={openFilters}
-          label={t("common.filters")}
-          onAddFilter={filter => setOpenFilters(openFilters => [...openFilters, filter])}
-          availableFilters={availableFilters}
-          large={large}
-        />
+        <FiltersContainer large={large}>
+          <Filters definition={filtersDefinition} values={filters} onChange={onChangeFilters} />
+        </FiltersContainer>
 
         {large ? (
           <>
-            <Space width={16} />
-
             <LakeButton
               ariaLabel={t("common.refresh")}
               mode="secondary"
@@ -218,14 +124,16 @@ export const MembershipListFilter = ({
                 onRefresh().tap(() => setIsRefreshing(false));
               }}
             />
+
+            <Space width={8} />
           </>
-        ) : null}
+        ) : (
+          <Space width={16} />
+        )}
 
-        <Fill minWidth={16} />
-
-        <LakeSearchField
-          placeholder={t("common.search")}
+        <SearchInput
           initialValue={search ?? ""}
+          collapsed={!large}
           onChangeText={text => onChangeSearch(emptyToUndefined(text))}
           renderEnd={() =>
             match(totalCount)
@@ -238,14 +146,6 @@ export const MembershipListFilter = ({
       </Box>
 
       <Space height={12} />
-
-      <FiltersStack
-        definition={filtersDefinition}
-        filters={filters}
-        openedFilters={openFilters}
-        onChangeFilters={onChangeFilters}
-        onChangeOpened={setOpenFilters}
-      />
     </>
   );
 };

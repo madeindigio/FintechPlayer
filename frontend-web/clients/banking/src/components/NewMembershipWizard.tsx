@@ -17,32 +17,39 @@ import { BirthdatePicker } from "@swan-io/shared-business/src/components/Birthda
 import { CountryPicker } from "@swan-io/shared-business/src/components/CountryPicker";
 import { PlacekitAddressSearchInput } from "@swan-io/shared-business/src/components/PlacekitAddressSearchInput";
 import { TaxIdentificationNumberInput } from "@swan-io/shared-business/src/components/TaxIdentificationNumberInput";
-import { CountryCCA3, allCountries } from "@swan-io/shared-business/src/constants/countries";
+import {
+  Country,
+  CountryCCA3,
+  allCountries,
+  getCountryByCCA3,
+} from "@swan-io/shared-business/src/constants/countries";
 import { showToast } from "@swan-io/shared-business/src/state/toasts";
 import { translateError } from "@swan-io/shared-business/src/utils/i18n";
-import { validateIndividualTaxNumber } from "@swan-io/shared-business/src/utils/validation";
-import { combineValidators, toOptionalValidator, useForm } from "@swan-io/use-form";
-import { parsePhoneNumber } from "libphonenumber-js";
+import {
+  validateEmail,
+  validateIndividualTaxNumber,
+  validateName,
+  validateNullableRequired,
+  validateRequired,
+} from "@swan-io/shared-business/src/utils/validation";
+import { combineValidators, useForm } from "@swan-io/use-form";
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
+import { useFlag } from "react-tggl-client";
 import { P, match } from "ts-pattern";
 import {
   AccountCountry,
   AccountLanguage,
   AccountMembershipFragment,
   AddAccountMembershipDocument,
+  SendAccountMembershipInviteNotificationDocument,
 } from "../graphql/partner";
 import { accountLanguages, locale, t } from "../utils/i18n";
+import { prefixPhoneNumber } from "../utils/phone";
 import { projectConfiguration } from "../utils/projectId";
 import { Router } from "../utils/routes";
-import {
-  validateAddressLine,
-  validateEmail,
-  validateForPermissions,
-  validateName,
-  validateNullableRequired,
-  validateRequired,
-} from "../utils/validations";
+import { validateAddressLine } from "../utils/validations";
+import { InputPhoneNumber } from "./InputPhoneNumber";
 
 const styles = StyleSheet.create({
   paginationDot: {
@@ -52,35 +59,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.gray[200],
     marginHorizontal: spacings[4],
   },
-  paginationDotActive: {
-    backgroundColor: colors.gray[500],
-  },
-  field: {
-    alignSelf: "stretch",
-  },
-  fieldLarge: {
-    flexBasis: "50%",
-    flexShrink: 1,
-  },
-  checkbox: {
-    alignSelf: "stretch",
-    paddingVertical: spacings[4],
-  },
-  checkboxLarge: {
-    flexBasis: "50%",
-  },
+  paginationDotActive: { backgroundColor: colors.gray[500] },
+  field: { alignSelf: "stretch" },
+  fieldLarge: { flexBasis: "50%", flexShrink: 1 },
+  checkbox: { alignSelf: "stretch", paddingVertical: spacings[4] },
+  checkboxLarge: { flexBasis: "50%" },
+  phoneNumberContainer: { paddingTop: 6 },
 });
-
-const validatePhoneNumber = (value: string) => {
-  try {
-    // parsePhoneNumber can throw an error
-    if (!parsePhoneNumber(value).isValid()) {
-      return t("common.form.invalidPhoneNumber");
-    }
-  } catch {
-    return t("common.form.invalidPhoneNumber");
-  }
-};
 
 type Props = {
   accountId: string;
@@ -94,7 +79,7 @@ type Props = {
 type Step = "Informations" | "Address";
 
 type FormState = {
-  phoneNumber: string;
+  phoneNumber: { country: Country; nationalNumber: string };
   email: string;
   language: AccountLanguage;
   firstName: string;
@@ -115,9 +100,8 @@ type FormState = {
 const hasDefinedKeys = <T extends Record<string, unknown>, K extends keyof T = keyof T>(
   object: T,
   keys: K[],
-): object is T & {
-  [K1 in K]-?: Exclude<T[K1], undefined>;
-} => keys.every(key => typeof object[key] !== "undefined");
+): object is T & { [K1 in K]-?: Exclude<T[K1], undefined> } =>
+  keys.every(key => typeof object[key] !== "undefined");
 
 const MANDATORY_FIELDS = [
   "phoneNumber",
@@ -139,6 +123,12 @@ export const NewMembershipWizard = ({
   onSuccess,
   onPressCancel,
 }: Props) => {
+  const canUseNotificationStack = useFlag("useNotificationStackToSendNewMembershipEmail", false);
+
+  const [sendAccountMembershipInviteNotification] = useMutation(
+    SendAccountMembershipInviteNotificationDocument,
+  );
+
   const [step, setStep] = useState<Step>("Informations");
   const [partiallySavedValues, setPartiallySavedValues] = useState<Partial<FormState> | null>(null);
 
@@ -150,17 +140,36 @@ export const NewMembershipWizard = ({
 
   const { Field, FieldsListener, setFieldValue, submitForm } = useForm<FormState>({
     phoneNumber: {
-      initialValue: partiallySavedValues?.phoneNumber ?? "",
-      sanitize: trim,
-      validate: (value, { getFieldValue }) => {
+      initialValue: partiallySavedValues?.phoneNumber ?? {
+        country: getCountryByCCA3(accountCountry),
+        nationalNumber: "",
+      },
+      sanitize: ({ country, nationalNumber }) => ({
+        country,
+        nationalNumber: nationalNumber.trim(),
+      }),
+      strategy: "onBlur",
+      validate: ({ country, nationalNumber }, { getFieldValue }) => {
         if (
           getFieldValue("canManageAccountMembership") ||
           getFieldValue("canManageBeneficiaries") ||
           getFieldValue("canInitiatePayments")
         ) {
-          return combineValidators(validateForPermissions, validatePhoneNumber)(value);
+          if (nationalNumber.trim() === "") {
+            return t("common.form.required.permissions");
+          }
+          const phoneNumber = prefixPhoneNumber(country, nationalNumber);
+
+          if (!phoneNumber.valid) {
+            return t("common.form.invalidPhoneNumber");
+          }
         }
-        return toOptionalValidator(validatePhoneNumber)(value);
+        if (nationalNumber.trim() !== "") {
+          const phoneNumber = prefixPhoneNumber(country, nationalNumber);
+          if (!phoneNumber.valid) {
+            return t("common.form.invalidPhoneNumber");
+          }
+        }
       },
     },
     language: {
@@ -196,21 +205,13 @@ export const NewMembershipWizard = ({
         }
       },
     },
-    canViewAccount: {
-      initialValue: partiallySavedValues?.canViewAccount ?? false,
-    },
-    canInitiatePayments: {
-      initialValue: partiallySavedValues?.canInitiatePayments ?? false,
-    },
-    canManageBeneficiaries: {
-      initialValue: partiallySavedValues?.canManageBeneficiaries ?? false,
-    },
+    canViewAccount: { initialValue: partiallySavedValues?.canViewAccount ?? false },
+    canInitiatePayments: { initialValue: partiallySavedValues?.canInitiatePayments ?? false },
+    canManageBeneficiaries: { initialValue: partiallySavedValues?.canManageBeneficiaries ?? false },
     canManageAccountMembership: {
       initialValue: partiallySavedValues?.canManageAccountMembership ?? false,
     },
-    canManageCards: {
-      initialValue: partiallySavedValues?.canManageCards ?? false,
-    },
+    canManageCards: { initialValue: partiallySavedValues?.canManageCards ?? false },
     // German account specific fields
     addressLine1: {
       initialValue: partiallySavedValues?.addressLine1 ?? "",
@@ -313,7 +314,7 @@ export const NewMembershipWizard = ({
     taxIdentificationNumber: {
       initialValue: partiallySavedValues?.taxIdentificationNumber ?? "",
       strategy: "onBlur",
-      sanitize: value => value.trim().replace(/\//g, ""),
+      sanitize: value => value.replace(/[-_. \/]/g, ""),
       validate: (value, { getFieldValue }) => {
         return match({
           accountCountry,
@@ -329,18 +330,14 @@ export const NewMembershipWizard = ({
               ),
               { accountCountry: "ITA", residencyAddressCountry: "ITA", canInitiatePayments: true },
             ),
-            () =>
+            ({ accountCountry }) =>
               combineValidators(
                 validateRequired,
                 validateIndividualTaxNumber(accountCountry),
               )(value),
           )
-          .with(
-            {
-              accountCountry: "DEU",
-              residencyAddressCountry: "DEU",
-            },
-            () => validateIndividualTaxNumber(accountCountry)(value),
+          .with({ accountCountry: "DEU", residencyAddressCountry: "DEU" }, ({ accountCountry }) =>
+            validateIndividualTaxNumber(accountCountry)(value),
           )
           .otherwise(() => undefined);
       },
@@ -386,39 +383,42 @@ export const NewMembershipWizard = ({
     query.append("inviterAccountMembershipId", currentUserAccountMembership.id);
     query.append("lang", language);
 
-    const url = match(projectConfiguration)
-      .with(
-        Option.P.Some({ projectId: P.select(), mode: "MultiProject" }),
-        projectId =>
-          `/api/projects/${projectId}/invitation/${editingAccountMembershipId}/send?${query.toString()}`,
-      )
-      .otherwise(() => `/api/invitation/${editingAccountMembershipId}/send?${query.toString()}`);
-
-    return Request.make({
-      url,
-      method: "POST",
-      withCredentials: true,
-      responseType: "json",
-      body: JSON.stringify({
-        inviteeAccountMembershipId: editingAccountMembershipId,
-        inviterAccountMembershipId: currentUserAccountMembership.id,
-      }),
-    })
-      .mapOkToResult(badStatusToError)
-      .mapOk(() => undefined)
-      .mapError(() => undefined)
-      .tapError(error => {
-        showToast({ variant: "error", error, title: t("error.generic") });
+    if (canUseNotificationStack) {
+      sendAccountMembershipInviteNotification({
+        input: { accountMembershipId: editingAccountMembershipId },
       });
+    } else {
+      const url = match(projectConfiguration)
+        .with(
+          Option.P.Some({ projectId: P.select(), mode: "MultiProject" }),
+          projectId =>
+            `/api/projects/${projectId}/invitation/${editingAccountMembershipId}/send?${query.toString()}`,
+        )
+        .otherwise(() => `/api/invitation/${editingAccountMembershipId}/send?${query.toString()}`);
+
+      return Request.make({
+        url,
+        method: "POST",
+        credentials: "include",
+        type: "json",
+        body: JSON.stringify({
+          inviteeAccountMembershipId: editingAccountMembershipId,
+          inviterAccountMembershipId: currentUserAccountMembership.id,
+        }),
+      })
+        .mapOkToResult(badStatusToError)
+        .mapOk(() => undefined)
+        .mapError(() => undefined)
+        .tapError(error => {
+          showToast({ variant: "error", error, title: t("error.generic") });
+        });
+    }
   };
 
   const onPressSubmit = () => {
     submitForm({
       onSuccess: values => {
-        const computedValues = {
-          ...partiallySavedValues,
-          ...Dict.fromOptional(values),
-        };
+        const computedValues = { ...partiallySavedValues, ...Dict.fromOptional(values) };
 
         if (hasDefinedKeys(computedValues, MANDATORY_FIELDS)) {
           const { addressLine1, city, postalCode, country, language } = computedValues;
@@ -429,12 +429,7 @@ export const NewMembershipWizard = ({
 
           const residencyAddress = isAddressIncomplete
             ? undefined
-            : {
-                addressLine1,
-                city,
-                postalCode,
-                country,
-              };
+            : { addressLine1, city, postalCode, country };
 
           addMember({
             input: {
@@ -452,7 +447,19 @@ export const NewMembershipWizard = ({
               restrictedTo: {
                 firstName: computedValues.firstName,
                 lastName: computedValues.lastName,
-                phoneNumber: emptyToUndefined(computedValues.phoneNumber),
+                phoneNumber: Option.fromNullable(computedValues.phoneNumber.nationalNumber)
+                  .flatMap(nationalNumber => {
+                    const value = nationalNumber.trim();
+                    return value === "" ? Option.None() : Option.Some(value);
+                  })
+                  .flatMap(nationalNumber => {
+                    const phoneNumber = prefixPhoneNumber(
+                      computedValues.phoneNumber.country,
+                      nationalNumber,
+                    );
+                    return phoneNumber.valid ? Option.Some(phoneNumber.e164) : Option.None();
+                  })
+                  .toNull(),
                 birthDate: computedValues.birthDate,
               },
               taxIdentificationNumber: emptyToUndefined(
@@ -553,25 +560,18 @@ export const NewMembershipWizard = ({
                   </Box>
 
                   <Box direction={boxDirection}>
-                    <View style={fieldStyle}>
+                    <View style={[styles.phoneNumberContainer, fieldStyle]}>
                       <Field name="phoneNumber">
-                        {({ value, valid, error, onChange, onBlur, ref }) => (
-                          <LakeLabel
+                        {({ value, valid, error, onChange, ref, onBlur }) => (
+                          <InputPhoneNumber
                             label={t("membershipDetail.edit.phoneNumber")}
-                            render={id => (
-                              <LakeTextInput
-                                id={id}
-                                ref={ref}
-                                placeholder="+33600000000"
-                                value={value ?? ""}
-                                valid={valid}
-                                error={error}
-                                onChangeText={onChange}
-                                onBlur={onBlur}
-                                inputMode="tel"
-                                help={t("membershipDetail.edit.phoneNumber.requiredForPermissions")}
-                              />
-                            )}
+                            ref={ref}
+                            onValueChange={onChange}
+                            error={error}
+                            value={value}
+                            valid={valid}
+                            onBlur={onBlur}
+                            help={t("membershipDetail.edit.phoneNumber.requiredForPermissions")}
                           />
                         )}
                       </Field>
@@ -779,7 +779,7 @@ export const NewMembershipWizard = ({
                                     }}
                                     language={locale.language}
                                     placeholder={t("addressInput.placeholder")}
-                                    emptyResultText={t("common.noResults")}
+                                    emptyResult={t("common.noResults")}
                                     error={error}
                                     id={id}
                                   />
@@ -847,12 +847,12 @@ export const NewMembershipWizard = ({
                               { accountCountry: "DEU", country: "DEU" },
                               { accountCountry: "ITA", country: "ITA", canInitiatePayments: true },
                             ),
-                            () => (
+                            ({ accountCountry }) => (
                               <Field name="taxIdentificationNumber">
                                 {({ value, valid, error, onChange, ref }) => (
                                   <TaxIdentificationNumberInput
                                     ref={ref}
-                                    accountCountry={accountCountry}
+                                    country={accountCountry}
                                     isCompany={false}
                                     value={value}
                                     valid={valid}

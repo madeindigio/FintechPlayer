@@ -19,7 +19,7 @@ import {
   validateRequired,
 } from "@swan-io/shared-business/src/utils/validation";
 import { combineValidators, useForm } from "@swan-io/use-form";
-import { forwardRef, useCallback, useImperativeHandle } from "react";
+import { Ref, useCallback, useImperativeHandle } from "react";
 import { View } from "react-native";
 import { P, match } from "ts-pattern";
 import { AccountCountry } from "../../../graphql/unauthenticated";
@@ -41,7 +41,13 @@ export type Input = {
   taxIdentificationNumber?: string;
 };
 
+export type OnboardingCompanyOwnershipBeneficiaryFormAddressRef = {
+  getInput: () => Input;
+  submit: () => void;
+};
+
 type Props = {
+  ref?: Ref<OnboardingCompanyOwnershipBeneficiaryFormAddressRef>;
   placekitApiKey: string | undefined;
   accountCountry: AccountCountry;
   companyCountry: CountryCCA3;
@@ -49,15 +55,14 @@ type Props = {
   onSave: (input: Input) => void | Promise<void>;
 };
 
-export type OnboardingCompanyOwnershipBeneficiaryFormAddressRef = {
-  getInput: () => Input;
-  submit: () => void;
-};
-
-export const OnboardingCompanyOwnershipBeneficiaryFormAddress = forwardRef<
-  OnboardingCompanyOwnershipBeneficiaryFormAddressRef,
-  Props
->(({ placekitApiKey, accountCountry, companyCountry, initialValues, onSave }, ref) => {
+export const OnboardingCompanyOwnershipBeneficiaryFormAddress = ({
+  ref,
+  placekitApiKey,
+  accountCountry,
+  companyCountry,
+  initialValues,
+  onSave,
+}: Props) => {
   const { Field, FieldsListener, getFieldValue, setFieldValue, submitForm } = useForm<FormValues>({
     residencyAddressLine1: {
       initialValue: initialValues.residencyAddressLine1 ?? "",
@@ -82,7 +87,7 @@ export const OnboardingCompanyOwnershipBeneficiaryFormAddress = forwardRef<
     },
     taxIdentificationNumber: {
       initialValue: initialValues.taxIdentificationNumber ?? "",
-      sanitize: trim,
+      sanitize: value => value.replace(/[-_. \/]/g, ""),
       validate: (value, { getFieldValue }) => {
         const beneficiaryCountry = getFieldValue("residencyAddressCountry");
 
@@ -122,7 +127,7 @@ export const OnboardingCompanyOwnershipBeneficiaryFormAddress = forwardRef<
             const requiredFields = Option.allFromDict({
               residencyAddressCountry,
               ...match(accountCountry)
-                .with("DEU", "ESP", () => ({
+                .with("DEU", "ESP", "BEL", () => ({
                   residencyAddressLine1,
                   residencyAddressCity,
                   residencyAddressPostalCode,
@@ -189,7 +194,7 @@ export const OnboardingCompanyOwnershipBeneficiaryFormAddress = forwardRef<
                     <PlacekitAddressSearchInput
                       inputRef={ref}
                       apiKey={placekitApiKey}
-                      emptyResultText={t("common.noResult")}
+                      emptyResult={t("common.noResult")}
                       placeholder={t("company.step.owners.beneficiary.residencyAddressPlaceholder")}
                       language={locale.language}
                       id={id}
@@ -249,6 +254,7 @@ export const OnboardingCompanyOwnershipBeneficiaryFormAddress = forwardRef<
                 { accountCountry: "DEU", residencyAddressCountry: "DEU" },
                 { accountCountry: "ESP" },
                 { accountCountry: "ITA" },
+                { accountCountry: "BEL" },
                 () => (
                   <>
                     <Space height={12} />
@@ -261,7 +267,7 @@ export const OnboardingCompanyOwnershipBeneficiaryFormAddress = forwardRef<
                           error={error}
                           valid={valid}
                           onChange={onChange}
-                          accountCountry={accountCountry}
+                          country={accountCountry}
                           isCompany={false}
                           // is mandatory for German accounts with UBO living in Germany, same for Italy
                           required={
@@ -280,4 +286,4 @@ export const OnboardingCompanyOwnershipBeneficiaryFormAddress = forwardRef<
       </FieldsListener>
     </View>
   );
-});
+};

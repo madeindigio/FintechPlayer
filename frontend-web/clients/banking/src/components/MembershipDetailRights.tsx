@@ -162,8 +162,7 @@ export const MembershipDetailRights = ({
         },
       },
     ),
-    editingAccountMembership,
-  );
+  )(editingAccountMembership);
 
   const isEditingCurrentUserAccountMembership =
     currentUserAccountMembership.id === editingAccountMembership.id;
@@ -474,7 +473,11 @@ export const MembershipDetailRights = ({
             )
             .otherwise(() => null)}
 
-          {match({ isEditingCurrentUserAccountMembership, editingAccountMembership })
+          {match({
+            isEditingCurrentUserAccountMembership,
+            editingAccountMembership,
+            canUpdateAccountMembership,
+          })
             .with(
               // Can't remove yourself
               { isEditingCurrentUserAccountMembership: true },
@@ -482,6 +485,8 @@ export const MembershipDetailRights = ({
               {
                 editingAccountMembership: { legalRepresentative: true },
               },
+              // Membership doesn't have the permission
+              { canUpdateAccountMembership: false },
               () => null,
             )
             .otherwise(() => (

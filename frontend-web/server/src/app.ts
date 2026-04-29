@@ -1,6 +1,7 @@
 import accepts from "@fastify/accepts";
 import cors from "@fastify/cors";
 import fastifyHelmet from "@fastify/helmet";
+import middie from "@fastify/middie";
 import replyFrom from "@fastify/reply-from";
 import secureSession from "@fastify/secure-session";
 import sensible, { HttpErrorCodes } from "@fastify/sensible";
@@ -12,7 +13,6 @@ import mustache from "mustache";
 import { randomUUID } from "node:crypto";
 import { lookup } from "node:dns";
 import fs from "node:fs";
-import { Http2SecureServer } from "node:http2";
 import path from "pathe";
 import { P, match } from "ts-pattern";
 import {
@@ -25,25 +25,38 @@ import {
 import {
   UnsupportedAccountCountryError,
   bindAccountMembership,
+  createPublicCompanyAccountHolderOnboarding,
+  createPublicIndividualAccountHolderOnboarding,
   finalizeOnboarding,
+  finalizeOnboardingV2,
   getProjectId,
   parseAccountCountry,
 } from "./api/partner";
-import { swan__bindAccountMembership, swan__finalizeOnboarding } from "./api/partner.swan";
+import {
+  swan__bindAccountMembership,
+  swan__finalizeOnboarding,
+  swan__finalizeOnboardingV2,
+} from "./api/partner.swan";
 import {
   OnboardingRejectionError,
   getOnboardingOAuthClientId,
   onboardCompanyAccountHolder,
   onboardIndividualAccountHolder,
 } from "./api/unauthenticated";
-import { HttpsConfig, startDevServer } from "./client/devServer";
+import { startDevServer } from "./client/devServer";
 import { getProductionRequestHandler } from "./client/prodServer";
 import { env } from "./env";
 import { replyWithAuthError, replyWithError } from "./error";
-
 const packageJson = JSON.parse(
   fs.readFileSync(path.join(__dirname, "../package.json"), "utf-8"),
-) as unknown as { version: string };
+) as { version: string };
+
+const keysPath = path.join(__dirname, "../keys");
+
+const keys = {
+  key: path.join(keysPath, "_wildcard.swan.local-key.pem"),
+  cert: path.join(keysPath, "_wildcard.swan.local.pem"),
+};
 
 const COOKIE_MAX_AGE = 60 * (env.NODE_ENV !== "test" ? 5 : 60); // 5 minutes (except for tests)
 const OAUTH_STATE_COOKIE_MAX_AGE = 900; // 15 minutes
@@ -56,14 +69,11 @@ export type InvitationConfig = {
 };
 
 type AppConfig = {
-  mode: "development" | "test" | "production";
-  httpsConfig?: HttpsConfig;
-  sendAccountMembershipInvitation?: (config: InvitationConfig) => Promise<unknown>;
   allowedCorsOrigins?: string[];
+  sendAccountMembershipInvitation?: (config: InvitationConfig) => Promise<unknown>;
 };
 
 declare module "@fastify/secure-session" {
-  // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
   interface SessionData {
     expiresAt: number;
     accessToken: string;
@@ -73,7 +83,6 @@ declare module "@fastify/secure-session" {
 }
 
 declare module "fastify" {
-  // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
   interface FastifyRequest {
     accessToken: string | undefined;
     config: {
@@ -85,25 +94,41 @@ declare module "fastify" {
   }
 }
 
-const getPort = (url: string) => {
-  let port = new URL(url).port;
-  if (port === "") {
-    port = url.startsWith("https") ? "443" : "80";
-  }
-  return port;
+export const appNames = ["banking", "onboarding", "payment"] as const;
+
+export type AppName = (typeof appNames)[number];
+
+const URLS = {
+  BANKING: new URL(env.BANKING_URL),
+  ONBOARDING: new URL(env.ONBOARDING_URL),
+  PAYMENT: new URL(env.PAYMENT_URL),
 };
 
-const BANKING_PORT = getPort(env.BANKING_URL);
-const ONBOARDING_PORT = getPort(env.ONBOARDING_URL);
-const PAYMENT_PORT = getPort(env.PAYMENT_URL);
+export const getAppNameByHostName = (hostname: string): AppName | undefined => {
+  switch (hostname) {
+    case URLS.BANKING.hostname:
+      return "banking";
+    case URLS.ONBOARDING.hostname:
+      return "onboarding";
+    case URLS.PAYMENT.hostname:
+      return "payment";
+  }
+};
 
-const ports = new Set([BANKING_PORT, ONBOARDING_PORT, PAYMENT_PORT]);
+const getPort = (url: URL) =>
+  url.port === "" ? (url.protocol === "https:" ? "443" : "80") : url.port;
+
+const ports = new Set([getPort(URLS.BANKING), getPort(URLS.ONBOARDING), getPort(URLS.PAYMENT)]);
+
+type Reply = FastifyReply | Promise<FastifyReply>;
 
 const assertIsBoundToLocalhost = (host: string) => {
   return new Promise((resolve, reject) => {
     lookup(host, { family: 4 }, (err, address) => {
       if (err != null || address !== "127.0.0.1") {
-        reject(`${host} isn't bound to localhost, did you setup your /etc/hosts correctly?`);
+        reject(
+          new Error(`${host} isn't bound to localhost, did you setup your /etc/hosts correctly?`),
+        );
       }
       resolve(true);
     });
@@ -111,35 +136,28 @@ const assertIsBoundToLocalhost = (host: string) => {
 };
 
 export const start = async ({
-  mode,
-  httpsConfig,
   sendAccountMembershipInvitation,
   allowedCorsOrigins = [],
 }: AppConfig) => {
-  const BANKING_HOST = new URL(env.BANKING_URL).hostname;
-
-  if (mode === "development") {
-    const ONBOARDING_HOST = new URL(env.ONBOARDING_URL).hostname;
-    const PAYMENT_HOST = new URL(env.PAYMENT_URL).hostname;
-
+  if (env.NODE_ENV === "development") {
     try {
       await Promise.all([
-        assertIsBoundToLocalhost(BANKING_HOST),
-        assertIsBoundToLocalhost(ONBOARDING_HOST),
-        assertIsBoundToLocalhost(PAYMENT_HOST),
+        assertIsBoundToLocalhost(URLS.BANKING.hostname),
+        assertIsBoundToLocalhost(URLS.ONBOARDING.hostname),
+        assertIsBoundToLocalhost(URLS.PAYMENT.hostname),
       ]);
     } catch (err) {
       console.error(err);
       process.exit(1);
     }
 
-    if (httpsConfig != null) {
-      if (!fs.statSync(httpsConfig.key).isFile()) {
+    if (env.NODE_ENV === "development") {
+      if (!fs.statSync(keys.key).isFile()) {
         console.error("Missing HTTPS key, did you generate it in `server/keys`?");
         process.exit(1);
       }
 
-      if (!fs.statSync(httpsConfig.cert).isFile()) {
+      if (!fs.statSync(keys.cert).isFile()) {
         console.error("Missing HTTPS cert, did you generate it in `server/keys`?");
         process.exit(1);
       }
@@ -147,45 +165,37 @@ export const start = async ({
   }
 
   const app = fastify({
-    // @ts-expect-error
-    // To emulate secure cookies, we use HTTPS locally but expose HTTP in production,
-    // in order to let the gateway handle that, and fastify ts bindings don't like that
-    http2: httpsConfig != null,
-    https:
-      httpsConfig != null
-        ? {
-            key: fs.readFileSync(httpsConfig.key, "utf8"),
-            cert: fs.readFileSync(httpsConfig.cert, "utf8"),
-          }
-        : null,
     trustProxy: true,
+    // To emulate secure cookies, we use HTTPS locally but expose HTTP in production
+    ...(env.NODE_ENV === "development" && {
+      https: {
+        key: fs.readFileSync(keys.key, "utf-8"),
+        cert: fs.readFileSync(keys.cert, "utf-8"),
+      },
+    }),
     logger: {
       level: env.LOG_LEVEL,
+      formatters: {
+        level(label) {
+          return { level: label };
+        },
+      },
       ...(env.NODE_ENV === "development" && {
         transport: {
           target: "pino-pretty",
           options: { colorize: true },
         },
-        formatters: {
-          level(label) {
-            return { level: label };
-          },
-        },
       }),
     },
-    genReqId: req => {
-      const existingRequestId = req.headers["x-swan-request-id"];
-      if (typeof existingRequestId === "string") {
-        return existingRequestId;
-      }
-      return `req-${randomUUID()}`;
-    },
+    requestIdHeader: "x-swan-request-id",
+    genReqId: () => `req-${randomUUID()}`,
   });
 
   /**
    * Adds some useful utilities to your Fastify instance
    */
   await app.register(accepts);
+  await app.register(middie);
   await app.register(sensible);
 
   /**
@@ -219,14 +229,22 @@ export const start = async ({
     },
   });
 
+  const corsOptions = {
+    origin: [
+      URLS.BANKING.origin,
+      URLS.ONBOARDING.origin,
+      URLS.PAYMENT.origin,
+      ...allowedCorsOrigins,
+    ],
+    credentials: true,
+    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
+  };
+
   /**
    * The onboarding uses `BANKING_URL` as API root so that session is preserved
    * when the onboarding flow completes with the OAuth2 flow
    */
-  await app.register(cors, {
-    origin: [env.ONBOARDING_URL, env.BANKING_URL, env.PAYMENT_URL, ...allowedCorsOrigins],
-    credentials: true,
-  });
+  await app.register(cors, corsOptions);
 
   /**
    * View engine for pretty error rendering
@@ -248,7 +266,7 @@ export const start = async ({
       const refreshToken = request.session.get("refreshToken");
       const expiresAt = request.session.get("expiresAt") ?? 0;
 
-      if (typeof refreshToken == "string" && expiresAt < Date.now() + TEN_SECONDS) {
+      if (typeof refreshToken === "string" && expiresAt < Date.now() + TEN_SECONDS) {
         refreshAccessToken({
           refreshToken,
           redirectUri: `${env.BANKING_URL}/auth/callback`,
@@ -262,7 +280,7 @@ export const start = async ({
             request.session.set("refreshToken", refreshToken);
           })
           .tapError(error => {
-            request.log.debug(error);
+            request.log.debug(error, "Failed to refresh access token");
             request.session.delete();
             void reply.redirect("/login");
           })
@@ -297,14 +315,14 @@ export const start = async ({
     }
   });
 
-  app.addHook("onRequest", (request, reply, done) => {
+  app.addHook("onRequest", (request, _reply, done) => {
     request.accessToken = request.session.get("accessToken");
     done();
   });
 
   app.addHook("onRequest", (request, reply, done) => {
     if (request.url.startsWith("/api/") || request.url.startsWith("/auth/")) {
-      void reply.header("cache-control", `private, max-age=0`);
+      void reply.header("cache-control", "private, max-age=0");
     }
     done();
   });
@@ -323,14 +341,30 @@ export const start = async ({
     await app.register(fastifyStatic, {
       root: path.join(__dirname, "./static"),
       wildcard: false,
+      cacheControl: false,
     });
+  } else {
+    const root = path.resolve(__dirname, "../..");
+
+    for (const url of Object.values(URLS)) {
+      const appName = getAppNameByHostName(url.hostname);
+
+      if (appName != null) {
+        await app.register(fastifyStatic, {
+          constraints: { host: url.host },
+          root: path.join(root, "clients", appName, "public"),
+          wildcard: false,
+          decorateReply: false,
+        });
+      }
+    }
   }
 
   /**
    * An no-op to extend the cookie duration.
    */
-  app.post("/api/ping", async (request, reply) => {
-    return reply.header("cache-control", `private, max-age=0`).status(200).send({
+  app.post("/api/ping", async (_request, reply) => {
+    return reply.header("cache-control", "private, max-age=0").status(200).send({
       ok: true,
     });
   });
@@ -338,7 +372,7 @@ export const start = async ({
   /**
    * Proxies the Swan "unauthenticated" GraphQL API.
    */
-  app.post("/api/unauthenticated", async (request, reply) => {
+  app.post("/api/unauthenticated", async (_request, reply) => {
     return reply.from(env.UNAUTHENTICATED_API_URL);
   });
 
@@ -349,7 +383,7 @@ export const start = async ({
     return reply.from(env.PARTNER_API_URL, {
       rewriteRequestHeaders: (_req, headers) => ({
         ...headers,
-        ...(request.accessToken != undefined
+        ...(request.accessToken != null
           ? { Authorization: `Bearer ${request.accessToken}` }
           : undefined),
       }),
@@ -363,7 +397,7 @@ export const start = async ({
     return reply.from(env.PARTNER_ADMIN_API_URL, {
       rewriteRequestHeaders: (_req, headers) => ({
         ...headers,
-        ...(request.accessToken != undefined
+        ...(request.accessToken != null
           ? { Authorization: `Bearer ${request.accessToken}` }
           : undefined),
       }),
@@ -379,14 +413,21 @@ export const start = async ({
     async (request, reply) => {
       const accountCountry = parseAccountCountry(request.query.accountCountry);
       const projectId = await getProjectId();
+      const isOnboardingV2 = request.query.v2 === "true";
 
       return Future.value(Result.allFromDict({ accountCountry, projectId }))
-        .flatMapOk(({ accountCountry, projectId }) =>
-          onboardIndividualAccountHolder({ accountCountry, projectId }),
-        )
+        .flatMapOk(({ accountCountry, projectId }) => {
+          if (isOnboardingV2) {
+            return createPublicIndividualAccountHolderOnboarding({
+              accountCountry,
+              projectId,
+            });
+          }
+          return onboardIndividualAccountHolder({ accountCountry, projectId });
+        })
         .tapOk(onboardingId => {
           return reply
-            .header("cache-control", `private, max-age=0`)
+            .header("cache-control", "private, max-age=0")
             .redirect(`${env.ONBOARDING_URL}/onboardings/${onboardingId}`);
         })
         .tapError(error => {
@@ -394,9 +435,9 @@ export const start = async ({
             .with(
               P.instanceOf(UnsupportedAccountCountryError),
               P.instanceOf(OnboardingRejectionError),
-              error => request.log.warn(error),
+              error => request.log.warn(error, "Failed to start individual onboarding"),
             )
-            .otherwise(error => request.log.error(error));
+            .otherwise(error => request.log.error(error, "Failed to start individual onboarding"));
 
           return replyWithError(app, request, reply, {
             status: 400,
@@ -416,14 +457,18 @@ export const start = async ({
     async (request, reply) => {
       const accountCountry = parseAccountCountry(request.query.accountCountry);
       const projectId = await getProjectId();
+      const isOnboardingV2 = request.query.v2 === "true";
 
       return Future.value(Result.allFromDict({ accountCountry, projectId }))
-        .flatMapOk(({ accountCountry, projectId }) =>
-          onboardCompanyAccountHolder({ accountCountry, projectId }),
-        )
+        .flatMapOk(({ accountCountry, projectId }) => {
+          if (isOnboardingV2) {
+            return createPublicCompanyAccountHolderOnboarding({ accountCountry, projectId });
+          }
+          return onboardCompanyAccountHolder({ accountCountry, projectId });
+        })
         .tapOk(onboardingId => {
           return reply
-            .header("cache-control", `private, max-age=0`)
+            .header("cache-control", "private, max-age=0")
             .redirect(`${env.ONBOARDING_URL}/onboardings/${onboardingId}`);
         })
         .tapError(error => {
@@ -431,9 +476,9 @@ export const start = async ({
             .with(
               P.instanceOf(UnsupportedAccountCountryError),
               P.instanceOf(OnboardingRejectionError),
-              error => request.log.warn(error),
+              error => request.log.warn(error, "Failed to start company onboarding"),
             )
-            .otherwise(error => request.log.error(error));
+            .otherwise(error => request.log.error(error, "Failed to start company onboarding"));
 
           return replyWithError(app, request, reply, {
             status: 400,
@@ -489,7 +534,7 @@ export const start = async ({
       });
       return reply.send({ success: result });
     } catch (err) {
-      request.log.error(err);
+      request.log.error(err, "Failed to send account membership invitation");
 
       return replyWithError(app, request, reply, {
         status: 400,
@@ -506,24 +551,42 @@ export const start = async ({
       redirectTo,
       scope = "",
       onboardingId,
+      onboardingV2,
       accountMembershipId,
       identificationLevel,
       projectId,
       email,
+      phoneNumber,
+      fromDesktopIdentification,
     } = request.query;
-    if (
-      typeof redirectTo === "string" &&
-      (!redirectTo.startsWith("/") || redirectTo.startsWith("//"))
-    ) {
-      return reply.status(403).send("Invalid `redirectTo` param");
+    if (typeof redirectTo === "string") {
+      const hostUrl = new URL(env.BANKING_URL);
+      const url = new URL(redirectTo, hostUrl);
+      if (url.host !== hostUrl.host) {
+        return reply.status(403).send("Invalid `redirectTo` param");
+      }
     }
 
     const id = randomUUID();
 
     // If provided with an `onboardingId`, it means that the callback should end up
     // finalizing the onboarding, otherwise do a simple redirection
-    const state: OAuth2State = match({ onboardingId, accountMembershipId, projectId })
+    const state: OAuth2State = match({ onboardingId, onboardingV2, accountMembershipId, projectId })
       // Internal usage only
+      .with(
+        { onboardingV2: "true", onboardingId: P.string, projectId: P.string },
+        ({ onboardingId, projectId }) => ({
+          id,
+          type: "Swan__FinalizeOnboardingV2" as const,
+          onboardingId,
+          projectId,
+        }),
+      )
+      .with({ onboardingV2: "true", onboardingId: P.string }, ({ onboardingId }) => ({
+        id,
+        type: "FinalizeOnboardingV2" as const,
+        onboardingId,
+      }))
       .with({ onboardingId: P.string, projectId: P.string }, ({ onboardingId, projectId }) => ({
         id,
         type: "Swan__FinalizeOnboarding" as const,
@@ -561,13 +624,15 @@ export const start = async ({
 
     return reply.redirect(
       createAuthUrl({
-        scope: scope.split(" ").filter(item => item != null && item != ""),
+        scope: scope.split(" ").filter(item => item != null && item !== ""),
         params: {
           ...(email != null ? { email } : null),
+          ...(phoneNumber != null ? { phoneNumber } : null),
           ...(onboardingId != null ? { onboardingId } : null),
           ...(identificationLevel != null ? { identificationLevel } : null),
           ...(projectId != null ? { projectId } : null),
           ...(accountMembershipId != null ? { accountMembershipId } : null),
+          ...(fromDesktopIdentification === "true" ? { fromDesktopIdentification: "true" } : null),
         },
         redirectUri: `${env.BANKING_URL}/auth/callback`,
         state: JSON.stringify(state),
@@ -579,8 +644,6 @@ export const start = async ({
    * OAuth2 Redirection handler
    */
   app.get<{ Querystring: Record<string, string> }>("/auth/callback", async (request, reply) => {
-    type Reply = FastifyReply<Http2SecureServer> | Promise<FastifyReply<Http2SecureServer>>;
-
     const state = Result.fromExecution<unknown>(() =>
       JSON.parse(request.query.state ?? "{}"),
     ).getOr({});
@@ -617,8 +680,96 @@ export const start = async ({
 
                 return match(state)
                   .returnType<Reply>()
-                  .with({ type: "Redirect" }, ({ redirectTo = "/swanpopupcallback" }) => {
+                  .with({ type: "Redirect" }, ({ redirectTo = "/" }) => {
                     return reply.redirect(redirectTo);
+                  })
+                  .with({ type: "Swan__FinalizeOnboardingV2" }, ({ onboardingId, projectId }) => {
+                    const onboardingOAuthClientId = getOnboardingOAuthClientId({ onboardingId });
+
+                    // Finalize the onboarding with the received user token
+                    return onboardingOAuthClientId
+                      .flatMapOk(({ onboardingInfo }) =>
+                        swan__finalizeOnboardingV2({ onboardingId, accessToken, projectId }).mapOk(
+                          payload => ({
+                            ...payload,
+                            oAuthClientId: onboardingInfo?.projectInfo?.oAuthClientId ?? undefined,
+                          }),
+                        ),
+                      )
+                      .toPromise()
+                      .then(result => {
+                        return result.match<Reply>({
+                          Ok: ({ redirectUrl, state, accountMembershipId, oAuthClientId }) => {
+                            if (redirectUrl != null) {
+                              const redirectHost = new URL(redirectUrl).hostname;
+
+                              // When onboarding from the dashboard, we don't yet have a OAuth2 client,
+                              // so we bypass the second OAuth2 link.
+                              if (
+                                redirectHost ===
+                                URLS.BANKING.hostname.replace("banking.", "dashboard.")
+                              ) {
+                                return reply.redirect(redirectUrl);
+                              } else {
+                                const authUri = createAuthUrl({
+                                  oAuthClientId,
+                                  scope: [],
+                                  redirectUri: redirectUrl,
+                                  state: state ?? onboardingId,
+                                  params: {},
+                                });
+
+                                return reply.redirect(authUri);
+                              }
+                            }
+
+                            return reply.redirect(
+                              `${env.BANKING_URL}/projects/${projectId}/${accountMembershipId}/activation`,
+                            );
+                          },
+                          Error: error => {
+                            request.log.error(error, "Failed to finalize onboarding V2");
+
+                            return replyWithError(app, request, reply, {
+                              status: 400,
+                              requestId: String(request.id),
+                            });
+                          },
+                        });
+                      });
+                  })
+                  .with({ type: "FinalizeOnboardingV2" }, ({ onboardingId }) => {
+                    // Finalize the onboarding with the received user token
+                    return finalizeOnboardingV2({ onboardingId, accessToken })
+                      .toPromise()
+                      .then(result => {
+                        return result.match<Reply>({
+                          Ok: ({ redirectUrl, state, accountMembershipId }) => {
+                            if (redirectUrl != null) {
+                              const authUri = createAuthUrl({
+                                scope: [],
+                                redirectUri: redirectUrl,
+                                state: state ?? onboardingId,
+                                params: {},
+                              });
+
+                              return reply.redirect(authUri);
+                            }
+
+                            return reply.redirect(
+                              `${env.BANKING_URL}/${accountMembershipId}/activation`,
+                            );
+                          },
+                          Error: error => {
+                            request.log.error(error, "Failed to finalize onboarding V2");
+
+                            return replyWithError(app, request, reply, {
+                              status: 400,
+                              requestId: String(request.id),
+                            });
+                          },
+                        });
+                      });
                   })
                   .with({ type: "Swan__FinalizeOnboarding" }, ({ onboardingId, projectId }) => {
                     const onboardingOAuthClientId = getOnboardingOAuthClientId({ onboardingId });
@@ -637,15 +788,16 @@ export const start = async ({
                       .then(result => {
                         return result.match<Reply>({
                           Ok: ({ redirectUrl, state, accountMembershipId, oAuthClientId }) => {
-                            const queryString = new URLSearchParams();
-
-                            if (redirectUrl != undefined) {
+                            if (redirectUrl != null) {
                               const redirectHost = new URL(redirectUrl).hostname;
 
                               // When onboarding from the dashboard, we don't yet have a OAuth2 client,
                               // so we bypass the second OAuth2 link.
-                              if (redirectHost === BANKING_HOST.replace("banking.", "dashboard.")) {
-                                queryString.append("redirectUrl", redirectUrl);
+                              if (
+                                redirectHost ===
+                                URLS.BANKING.hostname.replace("banking.", "dashboard.")
+                              ) {
+                                return reply.redirect(redirectUrl);
                               } else {
                                 const authUri = createAuthUrl({
                                   oAuthClientId,
@@ -655,22 +807,16 @@ export const start = async ({
                                   params: {},
                                 });
 
-                                queryString.append("redirectUrl", authUri);
+                                return reply.redirect(authUri);
                               }
                             }
 
-                            if (accountMembershipId != undefined) {
-                              queryString.append("accountMembershipId", accountMembershipId);
-                            }
-
-                            queryString.append("projectId", projectId);
-
                             return reply.redirect(
-                              `${env.ONBOARDING_URL}/swanpopupcallback?${queryString.toString()}`,
+                              `${env.BANKING_URL}/projects/${projectId}/${accountMembershipId}/activation`,
                             );
                           },
                           Error: error => {
-                            request.log.error(error);
+                            request.log.error(error, "Failed to finalize onboarding");
 
                             return replyWithError(app, request, reply, {
                               status: 400,
@@ -687,9 +833,7 @@ export const start = async ({
                       .then(result => {
                         return result.match<Reply>({
                           Ok: ({ redirectUrl, state, accountMembershipId }) => {
-                            const queryString = new URLSearchParams();
-
-                            if (redirectUrl != undefined) {
+                            if (redirectUrl != null) {
                               const authUri = createAuthUrl({
                                 scope: [],
                                 redirectUri: redirectUrl,
@@ -697,19 +841,15 @@ export const start = async ({
                                 params: {},
                               });
 
-                              queryString.append("redirectUrl", authUri);
-                            }
-
-                            if (accountMembershipId != undefined) {
-                              queryString.append("accountMembershipId", accountMembershipId);
+                              return reply.redirect(authUri);
                             }
 
                             return reply.redirect(
-                              `${env.ONBOARDING_URL}/swanpopupcallback?${queryString.toString()}`,
+                              `${env.BANKING_URL}/${accountMembershipId}/activation`,
                             );
                           },
                           Error: error => {
-                            request.log.error(error);
+                            request.log.error(error, "Failed to finalize onboarding");
 
                             return replyWithError(app, request, reply, {
                               status: 400,
@@ -728,7 +868,7 @@ export const start = async ({
                             return reply.redirect(`${env.BANKING_URL}/${accountMembershipId}`);
                           },
                           Error: error => {
-                            request.log.error(error);
+                            request.log.error(error, "Failed to bind account membership");
                             return reply.redirect(env.BANKING_URL);
                           },
                         });
@@ -751,7 +891,7 @@ export const start = async ({
                               );
                             },
                             Error: error => {
-                              request.log.error(error);
+                              request.log.error(error, "Failed to bind account membership");
                               return reply.redirect(env.BANKING_URL);
                             },
                           });
@@ -759,12 +899,13 @@ export const start = async ({
                     },
                   )
                   .otherwise(error => {
+                    request.log.error("Received unknown state type in OAuth callback");
                     request.log.error(error);
-                    return reply.redirect("/swanpopupcallback");
+                    return reply.redirect(env.BANKING_URL);
                   });
               },
               Error: error => {
-                request.log.error(error);
+                request.log.error(error, "Failed to bind account membership");
 
                 return replyWithError(app, request, reply, {
                   status: 400,
@@ -810,10 +951,13 @@ export const start = async ({
       .toResult("Invalid body")
       .flatMap(body => Result.fromExecution(() => JSON.parse(body) as unknown))
       .tapOk(body => {
-        request.log.warn({
-          name: "ClientSideError",
-          contents: body,
-        });
+        request.log.warn(
+          {
+            name: "ClientSideError",
+            contents: body,
+          },
+          "Received client side error report",
+        );
       })
       .isOk();
 
@@ -824,7 +968,7 @@ export const start = async ({
    * Exposes environement variables to the client apps at runtime.
    * The client simply has to load `<script src="/env.js"></script>`
    */
-  app.get("/env.js", async (request, reply) => {
+  app.get("/env.js", async (_request, reply) => {
     const projectId = await getProjectId();
     const data = {
       VERSION: packageJson.version,
@@ -837,6 +981,7 @@ export const start = async ({
       TGGL_API_KEY: process.env.TGGL_API_KEY,
       BANKING_URL: env.BANKING_URL,
       PAYMENT_URL: env.PAYMENT_URL,
+      IDENTITY_URL: env.IDENTITY_URL,
       SWAN_PROJECT_ID: projectId.match({
         Ok: projectId => projectId,
         Error: () => undefined,
@@ -854,22 +999,22 @@ export const start = async ({
 
     return reply
       .header("Content-Type", "application/javascript")
-      .header("cache-control", `public, max-age=0`)
+      .header("cache-control", "public, max-age=0")
       .send(`window.__env = ${JSON.stringify(data)};`);
   });
 
-  app.get("/health", async (request, reply) => {
-    return reply.header("cache-control", `private, max-age=0`).status(200).send({
+  app.get("/health", async (_request, reply) => {
+    return reply.header("cache-control", "private, max-age=0").status(200).send({
       version: packageJson.version,
       date: new Date().toISOString(),
       env: env.NODE_ENV,
     });
   });
 
-  if (mode !== "production") {
+  if (env.NODE_ENV !== "production") {
     // in dev mode, we boot vite servers that we proxy
     // the additional ports are the ones they need for the livereload web sockets
-    await startDevServer(app, httpsConfig);
+    await startDevServer(app, corsOptions);
   } else {
     // in production, simply serve the files
     const productionRequestHandler = getProductionRequestHandler();
@@ -877,7 +1022,7 @@ export const start = async ({
   }
 
   app.setErrorHandler((error, request, reply) => {
-    request.log.error(error);
+    request.log.error(error, "An unexpected error occurred while processing the request");
 
     const statusCode = error.statusCode as Exclude<HttpErrorCodes, string>;
 

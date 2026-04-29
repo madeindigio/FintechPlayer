@@ -1,16 +1,19 @@
 import { AsyncData, Result } from "@swan-io/boxed";
 import { Link } from "@swan-io/chicane";
 import { useQuery } from "@swan-io/graphql-client";
+import { AutoWidthImage } from "@swan-io/lake/src/components/AutoWidthImage";
 import { Box } from "@swan-io/lake/src/components/Box";
-import { Cell, HeaderCell, TextCell } from "@swan-io/lake/src/components/Cells";
+import { Cell, CopyableTextCell, HeaderCell, TextCell } from "@swan-io/lake/src/components/Cells";
 import { EmptyView } from "@swan-io/lake/src/components/EmptyView";
 import { Fill } from "@swan-io/lake/src/components/Fill";
+import { Icon } from "@swan-io/lake/src/components/Icon";
 import { LakeButton } from "@swan-io/lake/src/components/LakeButton";
 import { LoadingView } from "@swan-io/lake/src/components/LoadingView";
 import { ColumnConfig, PlainListView } from "@swan-io/lake/src/components/PlainListView";
 import { Tag } from "@swan-io/lake/src/components/Tag";
 import { Toggle } from "@swan-io/lake/src/components/Toggle";
 import { colors, spacings } from "@swan-io/lake/src/constants/design";
+import { isNotNullish } from "@swan-io/lake/src/utils/nullish";
 import { useMemo, useState } from "react";
 import { StyleSheet } from "react-native";
 import { P, match } from "ts-pattern";
@@ -48,38 +51,66 @@ type ExtraInfo = undefined;
 const columns: ColumnConfig<MerchantProfileFragment, ExtraInfo>[] = [
   {
     id: "name",
-    width: "grow",
+    width: 400,
     title: t("merchantProfile.list.name"),
     renderTitle: ({ title }) => <HeaderCell text={title} />,
     renderCell: ({ item }) => (
-      <TextCell variant="medium" color={colors.gray[900]} text={item.merchantName} />
+      <Cell direction="row">
+        <Box style={{ width: "100px" }} alignItems="center">
+          {isNotNullish(item.merchantLogoUrl) ? (
+            <AutoWidthImage
+              maxWidth={70}
+              style={{ width: "100%" }}
+              height={50}
+              sourceUri={item.merchantLogoUrl}
+            />
+          ) : (
+            <Icon size={16} name="image-regular" color="gray" />
+          )}
+        </Box>
+        <TextCell variant="medium" color={colors.gray[900]} text={item.merchantName} />
+      </Cell>
     ),
   },
   {
-    id: "paymentMethods",
+    id: "productType",
     width: 200,
-    title: t("merchantProfile.list.paymentMethods"),
-    renderTitle: ({ title }) => <HeaderCell align="right" text={title} />,
-    renderCell: ({ item }) => {
-      const paymentMethods = item.merchantPaymentMethods ?? [];
-      const activePaymentMethods = paymentMethods.filter(
-        item => item.statusInfo.status === "Enabled",
-      );
-
-      return (
-        <TextCell
-          align="right"
-          text={String(activePaymentMethods.length)}
-          color={colors.gray[500]}
+    title: t("merchantProfile.list.productType"),
+    renderTitle: ({ title }) => <HeaderCell align="left" text={title} />,
+    renderCell: ({ item }) => (
+      <TextCell
+        align="left"
+        text={match(item.productType)
+          .with("GiftsAndDonations", () =>
+            t("merchantProfile.request.productType.GiftsAndDonations"),
+          )
+          .with("Goods", () => t("merchantProfile.request.productType.Goods"))
+          .with("Services", () => t("merchantProfile.request.productType.Services"))
+          .with("VirtualGoods", () => t("merchantProfile.request.productType.VirtualGoods"))
+          .exhaustive()}
+      />
+    ),
+  },
+  {
+    id: "website",
+    width: 300,
+    title: t("merchantProfile.list.website"),
+    renderTitle: ({ title }) => <HeaderCell align="left" text={title} />,
+    renderCell: ({ item }) =>
+      isNotNullish(item.merchantWebsiteUrl) ? (
+        <CopyableTextCell
+          textToCopy={item.merchantWebsiteUrl}
+          text={item.merchantWebsiteUrl}
+          copyWording={t("copyButton.copyTooltip")}
+          copiedWording={t("copyButton.copiedTooltip")}
         />
-      );
-    },
+      ) : null,
   },
   {
     id: "status",
     width: 200,
-    title: "",
-    renderTitle: () => null,
+    title: t("merchantProfile.list.status"),
+    renderTitle: ({ title }) => <HeaderCell align="right" text={title} />,
     renderCell: ({ item }) => (
       <Cell align="right">
         {match(item.statusInfo.status)
@@ -105,13 +136,29 @@ const smallColumns: ColumnConfig<MerchantProfileFragment, ExtraInfo>[] = [
     id: "name",
     width: "grow",
     title: t("merchantProfile.list.name"),
-    renderTitle: ({ title }) => <HeaderCell text={title} />,
-    renderCell: ({ item }) => <TextCell variant="medium" text={item.merchantName} />,
+    renderTitle: () => null,
+    renderCell: ({ item }) => (
+      <Cell direction="row">
+        <Box style={{ width: "80px" }} alignItems="center">
+          {isNotNullish(item.merchantLogoUrl) ? (
+            <AutoWidthImage
+              maxWidth={70}
+              style={{ width: "100%" }}
+              height={50}
+              sourceUri={item.merchantLogoUrl}
+            />
+          ) : (
+            <Icon size={16} name="image-regular" color="gray" />
+          )}
+        </Box>
+        <TextCell variant="medium" color={colors.gray[900]} text={item.merchantName} />
+      </Cell>
+    ),
   },
   {
     id: "status",
     width: 200,
-    title: "",
+    title: t("merchantProfile.list.status"),
     renderTitle: () => null,
     renderCell: ({ item }) => (
       <Cell align="right">
@@ -158,34 +205,34 @@ export const MerchantList = ({ accountId, accountMembershipId, params, large }: 
         alignItems="center"
         style={[styles.filters, large && styles.filtersLarge]}
       >
-        <LakeButton
-          ariaLabel={t("common.refresh")}
-          mode="secondary"
-          size="small"
-          icon="arrow-counterclockwise-filled"
-          loading={isRefreshing}
-          onPress={() => {
-            setIsRefreshing(true);
-            reload().tap(() => setIsRefreshing(false));
-          }}
+        <Toggle
+          compact={!large}
+          value={params.status === "Active"}
+          onToggle={status =>
+            Router.push("AccountMerchantsList", {
+              accountMembershipId,
+              status: status ? "Active" : "Inactive",
+            })
+          }
+          labelOn={t("merchantProfile.list.Active")}
+          labelOff={t("merchantProfile.list.Inactive")}
         />
 
         <Fill minWidth={16} />
 
-        <Box direction="row" alignItems="center" justifyContent="end" grow={0} shrink={1}>
-          <Toggle
-            mode={large ? "desktop" : "mobile"}
-            value={params.status === "Active"}
-            onToggle={status =>
-              Router.push("AccountMerchantsList", {
-                accountMembershipId,
-                status: status ? "Active" : "Inactive",
-              })
-            }
-            onLabel={t("merchantProfile.list.Active")}
-            offLabel={t("merchantProfile.list.Inactive")}
+        {large && (
+          <LakeButton
+            ariaLabel={t("common.refresh")}
+            mode="secondary"
+            size="small"
+            icon="arrow-counterclockwise-filled"
+            loading={isRefreshing}
+            onPress={() => {
+              setIsRefreshing(true);
+              reload().tap(() => setIsRefreshing(false));
+            }}
           />
-        </Box>
+        )}
       </Box>
 
       {match(data)
@@ -199,7 +246,7 @@ export const MerchantList = ({ accountId, accountMembershipId, params, large }: 
                 data={merchantProfiles?.edges.map(({ node }) => node) ?? []}
                 keyExtractor={item => item.id}
                 headerHeight={48}
-                rowHeight={56}
+                rowHeight={104}
                 groupHeaderHeight={48}
                 extraInfo={undefined}
                 columns={columns}

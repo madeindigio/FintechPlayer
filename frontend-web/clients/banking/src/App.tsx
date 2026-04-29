@@ -6,20 +6,24 @@ import { colors } from "@swan-io/lake/src/constants/design";
 import { isNotNullishOrEmpty } from "@swan-io/lake/src/utils/nullish";
 import { ToastStack } from "@swan-io/shared-business/src/components/ToastStack";
 import { StyleSheet } from "react-native";
+import { TgglProvider, useFlag } from "react-tggl-client";
 import { P, match } from "ts-pattern";
 import { AccountClose } from "./components/AccountClose";
 import { AccountMembershipArea } from "./components/AccountMembershipArea";
+import { AddReceivedSepaDirectDebitB2bMandate } from "./components/AddReceivedSepaDirectDebitB2bMandate";
+import { CreditLimitRequest } from "./components/CreditLimitRequest";
 import { ErrorView } from "./components/ErrorView";
 import { ProjectRootRedirect } from "./components/ProjectRootRedirect";
 import { Redirect } from "./components/Redirect";
+import { VerificationRenewalArea } from "./components/VerificationRenewal/VerificationRenewalArea";
 import { AuthStatusDocument } from "./graphql/partner";
 import { NotFoundPage } from "./pages/NotFoundPage";
-import { PopupCallbackPage } from "./pages/PopupCallbackPage";
 import { ProjectLoginPage } from "./pages/ProjectLoginPage";
 import { partnerClient, unauthenticatedClient } from "./utils/gql";
-import { logFrontendError } from "./utils/logger";
 import { projectConfiguration } from "./utils/projectId";
 import { Router } from "./utils/routes";
+import { tgglClient } from "./utils/tggl";
+import { logFrontendError } from "./utils/tracing";
 
 const styles = StyleSheet.create({
   base: {
@@ -34,8 +38,15 @@ const AppContainer = () => {
     "ProjectRootRedirect",
     "AccountArea",
     "AccountClose",
+    "CreditLimitRequest",
+    "AddReceivedSepaDirectDebitB2bMandate",
+    "VerificationRenewalArea",
   ]);
   const [authStatus] = useQuery(AuthStatusDocument, {});
+
+  // Feature flag used only during deferred debit card development
+  // Should be removed once the feature is fully developed
+  const showDeferredDebitCard = useFlag("deferredDebitCard", false);
 
   const loginInfo = authStatus
     .mapOk(data => data.user?.id != null)
@@ -67,18 +78,50 @@ const AppContainer = () => {
           { name: "AccountArea" },
           { name: "ProjectRootRedirect" },
           { name: "AccountClose" },
+          { name: "CreditLimitRequest" },
+          { name: "AddReceivedSepaDirectDebitB2bMandate" },
+          { name: "VerificationRenewalArea" },
           route =>
             isLoggedIn ? (
               match(route)
                 .with({ name: "AccountClose" }, ({ params: { accountId, resourceId, status } }) => (
                   <AccountClose accountId={accountId} resourceId={resourceId} status={status} />
                 ))
+                .with(
+                  { name: "CreditLimitRequest" },
+                  ({ params: { accountId, from, requestAgain } }) =>
+                    showDeferredDebitCard ? (
+                      <CreditLimitRequest
+                        accountId={accountId}
+                        from={from}
+                        requestAgain={requestAgain === "true"}
+                      />
+                    ) : (
+                      <Redirect to={Router.ProjectRootRedirect()} />
+                    ),
+                )
+                .with(
+                  { name: "AddReceivedSepaDirectDebitB2bMandate" },
+                  ({ params: { accountId, resourceId, status } }) => (
+                    <AddReceivedSepaDirectDebitB2bMandate
+                      accountId={accountId}
+                      resourceId={resourceId}
+                      status={status}
+                    />
+                  ),
+                )
                 .with({ name: "AccountArea" }, ({ params: { accountMembershipId } }) => (
                   <AccountMembershipArea accountMembershipId={accountMembershipId} />
                 ))
                 .with({ name: "ProjectRootRedirect" }, ({ params: { to, source } }) => (
                   <ProjectRootRedirect to={to} source={source} />
                 ))
+                .with(
+                  { name: "VerificationRenewalArea" },
+                  ({ params: { verificationRenewalId } }) => (
+                    <VerificationRenewalArea verificationRenewalId={verificationRenewalId} />
+                  ),
+                )
                 .with(P.nullish, () => <NotFoundPage />)
                 .exhaustive()
             ) : (
@@ -92,29 +135,18 @@ const AppContainer = () => {
 };
 
 export const App = () => {
-  const route = Router.useRoute(["PopupCallback"]);
-
   return (
     <ErrorBoundary
-      key={route?.name}
       onError={error => logFrontendError(error)}
       fallback={() => <ErrorView style={styles.base} />}
     >
-      {match(route)
-        // The callback page is agnostic as to the current authentication,
-        // meaning we don't check if the user is logged in when on this path
-        .with({ name: "PopupCallback" }, ({ params: { redirectTo } }) => (
-          <PopupCallbackPage redirectTo={redirectTo} />
-        ))
-        .otherwise(() => (
-          // The auth check requires a GraphQL client
-          <ClientContext.Provider value={partnerClient}>
-            <AppContainer />
-            <ToastStack />
-          </ClientContext.Provider>
-        ))}
-
-      <ToastStack />
+      <TgglProvider client={tgglClient}>
+        <ClientContext.Provider value={partnerClient}>
+          <AppContainer />
+          <ToastStack />
+        </ClientContext.Provider>
+        <ToastStack />
+      </TgglProvider>
     </ErrorBoundary>
   );
 };
