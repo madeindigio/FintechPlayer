@@ -1,0 +1,405 @@
+fragment Address on AddressInfo {
+  addressLine1
+  addressLine2
+  city
+  country
+  postalCode
+  state
+}
+
+fragment BirthInfo on BirthInfo {
+  city
+  country
+  postalCode
+  birthDate
+}
+
+fragment CompanyRelatedIndividual on CompanyRelatedIndividualInfo {
+  type
+  firstName
+  lastName
+  sex
+  email
+  birthInfo {
+    ...BirthInfo
+  }
+  address {
+    ...Address
+  }
+  nationality
+  taxIdentificationNumber
+  unitedStatesTaxInfo {
+    isUnitedStatesPerson
+    unitedStatesTaxIdentificationNumber
+  }
+}
+
+fragment RelatedIndividualUltimateBeneficialOwner on RelatedIndividualUltimateBeneficialOwner {
+  qualificationType
+  controlTypes
+  ownership {
+    totalPercentage
+    type
+  }
+  identityDocumentInfo {
+    type
+    number
+    expiryDate
+    issueDate
+    issuingAuthority
+  }
+}
+
+fragment OnboardingStatus on OnboardingStatusInfo {
+  __typename
+  status
+  validationVersion
+  ... on OnboardingInvalidStatusInfo {
+    errors {
+      field
+      errors
+    }
+  }
+}
+
+fragment SupportingDocument on SupportingDocument {
+  id
+  supportingDocumentPurpose
+  supportingDocumentType
+  updatedAt
+  statusInfo {
+    __typename
+    status
+    ... on SupportingDocumentUploadedStatusInfo {
+      filename
+    }
+    ... on SupportingDocumentValidatedStatusInfo {
+      filename
+    }
+    ... on SupportingDocumentRefusedStatusInfo {
+      reasonCode
+      reason
+      filename
+    }
+  }
+}
+
+fragment SupportingDocumentCollection on SupportingDocumentCollection {
+  id
+  requiredSupportingDocumentPurposes {
+    name
+    label
+    description
+    purposeDetails
+  }
+  statusInfo {
+    status
+  }
+  supportingDocuments {
+    ...SupportingDocument
+  }
+}
+fragment CompanyInfo on CompanyInfo {
+  registrationNumber
+  name
+  tradeName
+  registrationDate
+  legalFormCode
+  vatNumber
+  taxIdentificationNumber
+  businessActivity
+  businessActivityDescription
+  businessActivityCode
+  address {
+    ...Address
+  }
+  headcount
+  forecastYearlyIncome
+  monthlyPaymentVolume
+  regulatoryClassification
+  websites
+  companyType
+  relatedCompanies {
+    entityName
+    registrationCountry
+    registrationNumber
+    roles
+  }
+  relatedIndividuals {
+    ... on CompanyLegalRepresentative {
+      ...CompanyRelatedIndividual
+      legalRepresentative {
+        roles
+      }
+    }
+    ... on CompanyUltimateBeneficialOwner {
+      ...CompanyRelatedIndividual
+      ultimateBeneficialOwner {
+        ...RelatedIndividualUltimateBeneficialOwner
+      }
+    }
+    ... on CompanyLegalRepresentativeAndUltimateBeneficialOwner {
+      ...CompanyRelatedIndividual
+      ultimateBeneficialOwner {
+        ...RelatedIndividualUltimateBeneficialOwner
+      }
+      legalRepresentative {
+        roles
+      }
+    }
+  }
+}
+
+fragment IndividualOrCompanyOnboarding on AccountHolderOnboardingBase {
+  id
+  oAuthRedirectParameters {
+    redirectUrl
+  }
+  statusInfo {
+    ...OnboardingStatus
+  }
+  supportingDocumentCollection {
+    ...SupportingDocumentCollection
+  }
+  projectInfo {
+    id
+    name
+    accentColor
+    logoUri
+    tcuDocumentUri(language: $language)
+  }
+  termsAndConditionsUrl
+}
+
+fragment CompanyOnboarding on CompanyAccountHolderOnboarding {
+  ...IndividualOrCompanyOnboarding
+  accountInfo {
+    name
+    country
+  }
+  accountAdmin {
+    birthInfo {
+      ...BirthInfo
+    }
+    email
+    firstName
+    preferredLanguage
+    lastName
+    nationality
+    address {
+      ...Address
+    }
+    taxIdentificationNumber
+    typeOfRepresentation
+    unitedStatesTaxInfo {
+      isUnitedStatesPerson
+      unitedStatesTaxIdentificationNumber
+    }
+  }
+  company {
+    ...CompanyInfo
+  }
+}
+
+fragment IndividualOnboarding on IndividualAccountHolderOnboarding {
+  ...IndividualOrCompanyOnboarding
+  accountInfo {
+    name
+    country
+  }
+  accountAdmin {
+    birthInfo {
+      ...BirthInfo
+    }
+    email
+    employmentStatus
+    firstName
+    preferredLanguage
+    lastName
+    monthlyIncome
+    nationality
+    address {
+      ...Address
+    }
+    sourcesOfFunds
+    unitedStatesTaxInfo {
+      isUnitedStatesPerson
+      unitedStatesTaxIdentificationNumber
+    }
+    taxIdentificationNumber
+  }
+}
+
+query GetPublicOnboarding($id: ID!, $language: String!) {
+  publicAccountHolderOnboarding(id: $id) {
+    ...CompanyOnboarding
+    ...IndividualOnboarding
+  }
+}
+
+query GetPublicCompamyInfoRegistryData($input: PublicCompanyInfoRegistryDataInput!) {
+  publicCompanyInfoRegistryData(input: $input) {
+    ...CompanyInfo
+  }
+}
+
+query GetPublicOnboardingVersion($id: ID!) {
+  publicAccountHolderOnboarding(id: $id) {
+    ... on CompanyAccountHolderOnboarding {
+      id
+      statusInfo {
+        validationVersion
+      }
+    }
+    ... on IndividualAccountHolderOnboarding {
+      id
+      statusInfo {
+        validationVersion
+      }
+    }
+  }
+}
+
+query GetLegalForms($country: CCA3!) {
+  legalForms(country: $country) {
+    country
+    localName
+    localAbbreviation
+    code
+  }
+}
+
+mutation UpdatePublicIndividualAccountHolderOnboarding(
+  $input: UpdatePublicIndividualAccountHolderOnboardingInput!
+  $language: String!
+) {
+  updatePublicIndividualAccountHolderOnboarding(input: $input) {
+    ... on UpdatePublicIndividualAccountHolderOnboardingSuccessPayload {
+      onboarding {
+        ...IndividualOnboarding
+      }
+    }
+  }
+}
+
+mutation UpdatePublicCompanyAccountHolderOnboarding(
+  $input: UpdatePublicCompanyAccountHolderOnboardingInput!
+  $language: String!
+) {
+  updatePublicCompanyAccountHolderOnboarding(input: $input) {
+    ... on UpdatePublicCompanyAccountHolderOnboardingSuccessPayload {
+      onboarding {
+        ...CompanyOnboarding
+      }
+    }
+  }
+}
+
+mutation GenerateSupportingDocumentUploadUrl($input: GenerateSupportingDocumentUploadUrlInput!) {
+  generateSupportingDocumentUploadUrl(input: $input) {
+    __typename
+    ... on GenerateSupportingDocumentUploadUrlSuccessPayload {
+      supportingDocumentId
+      upload {
+        fields {
+          key
+          value
+        }
+        url
+      }
+    }
+  }
+}
+
+mutation DeleteSupportingDocument($input: DeleteSupportingDocumentInput!) {
+  deleteSupportingDocument(input: $input) {
+    __typename
+    ... on DeleteSupportingDocumentSuccessPayload {
+      id
+    }
+    ... on Rejection {
+      message
+    }
+  }
+}
+
+fragment AccountAdminChangeInfo on AccountAdminChange {
+  id
+  reason
+  isNewAdminLegalRepresentative
+  isRequesterNewAdmin
+  accountHolder {
+    accounts {
+      name
+    }
+    name
+    projectInfo {
+      accentColor
+      logoUri
+      name
+    }
+  }
+  admin {
+    firstName
+    lastName
+    email
+    phoneNumber
+    birthCountry
+    birthDate
+  }
+  requester {
+    firstName
+    lastName
+    email
+    phoneNumber
+  }
+  supportingDocumentCollection {
+    id
+    statusInfo {
+      status
+    }
+    requiredSupportingDocumentPurposes {
+      name
+      label
+      description
+      purposeDetails
+    }
+    supportingDocuments {
+      ...SupportingDocument
+    }
+  }
+}
+
+query AccountAdminChange($accountAdminChangeId: ID!) {
+  publicAccountAdminChange(accountAdminChangeId: $accountAdminChangeId) {
+    ... on AccountAdminChange {
+      ...AccountAdminChangeInfo
+    }
+    ... on NonOngoingAccountAdminChange {
+      id
+      status
+    }
+  }
+}
+
+mutation UpdateAccountAdminChange($input: PublicUpdateAccountAdminChangeInput!) {
+  publicUpdateAccountAdminChange(input: $input) {
+    __typename
+    ... on PublicUpdateAccountAdminChangeSuccessPayload {
+      accountAdminChange {
+        ...AccountAdminChangeInfo
+      }
+    }
+    ... on Rejection {
+      message
+    }
+  }
+}
+
+mutation FinalizeAccountAdminChange($accountAdminChangeId: ID!) {
+  publicFinalizeAccountAdminChange(accountAdminChangeId: $accountAdminChangeId) {
+    ... on PublicFinalizeAccountAdminChangeSuccessPayload {
+      success
+    }
+  }
+}

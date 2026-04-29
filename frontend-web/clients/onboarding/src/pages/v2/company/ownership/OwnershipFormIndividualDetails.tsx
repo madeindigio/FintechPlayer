@@ -1,0 +1,441 @@
+import { Option } from "@swan-io/boxed";
+import { LakeAlert } from "@swan-io/lake/src/components/LakeAlert";
+import { LakeLabel } from "@swan-io/lake/src/components/LakeLabel";
+import { Item, LakeSelect } from "@swan-io/lake/src/components/LakeSelect";
+import { LakeTextInput } from "@swan-io/lake/src/components/LakeTextInput";
+import { RadioGroup } from "@swan-io/lake/src/components/RadioGroup";
+import { ResponsiveContainer } from "@swan-io/lake/src/components/ResponsiveContainer";
+import { Space } from "@swan-io/lake/src/components/Space";
+import { breakpoints } from "@swan-io/lake/src/constants/design";
+import { useFirstMountState } from "@swan-io/lake/src/hooks/useFirstMountState";
+import { identity } from "@swan-io/lake/src/utils/function";
+import { isNotNullishOrEmpty } from "@swan-io/lake/src/utils/nullish";
+import { trim } from "@swan-io/lake/src/utils/string";
+import { BirthdatePicker } from "@swan-io/shared-business/src/components/BirthdatePicker";
+import { CountryPicker } from "@swan-io/shared-business/src/components/CountryPicker";
+import { PlacekitCityInput } from "@swan-io/shared-business/src/components/PlacekitCityInput";
+import {
+  allCountries,
+  CountryCCA3,
+  isCountryCCA3,
+} from "@swan-io/shared-business/src/constants/countries";
+import {
+  validateBooleanTypeRequired,
+  validateName,
+  validateNullableRequired,
+  validateRequired,
+  validateUsaTaxNumber,
+} from "@swan-io/shared-business/src/utils/validation";
+import { combineValidators, useForm } from "@swan-io/use-form";
+import { Ref, useEffect, useImperativeHandle } from "react";
+import { StyleSheet, View } from "react-native";
+import { match, P } from "ts-pattern";
+import { gender } from "../../../../constants/business";
+import { Gender, RelatedIndividualInput } from "../../../../graphql/partner";
+import { t } from "../../../../utils/i18n";
+import { getValidationErrorMessage, ServerInvalidFieldCode } from "../../../../utils/validation";
+
+const styles = StyleSheet.create({
+  grid: {
+    gap: "8px",
+  },
+  gridDesktop: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: "16px 32px",
+  },
+  inputFull: {
+    gridColumnEnd: "span 2",
+  },
+});
+
+export type OnboardingCompanyOwnershipFormIndividualDetailsRef = {
+  submit: () => void;
+};
+
+type Props = {
+  initialValues: RelatedIndividualInput;
+  errors: { fieldName: string; code: ServerInvalidFieldCode }[];
+  ref: Ref<OnboardingCompanyOwnershipFormIndividualDetailsRef>;
+  companyCountry: CountryCCA3;
+  isAccountAdmin: boolean;
+  mode: "add" | "edit";
+  onSave: (input: Partial<RelatedIndividualInput>) => void | Promise<void>;
+};
+
+const genderItems: Item<Gender>[] = gender.map(({ text, value }) => ({
+  name: text,
+  value,
+}));
+
+export const OwnershipFormIndividualDetails = ({
+  ref,
+  onSave,
+  companyCountry,
+  isAccountAdmin,
+  initialValues,
+  errors,
+  mode,
+}: Props) => {
+  useImperativeHandle(ref, () => {
+    return {
+      submit: () => {
+        submitForm({
+          onSuccess: values => {
+            const option = Option.allFromDict(values);
+            if (option.isNone()) {
+              return;
+            }
+            const {
+              birthDate,
+              birthCountry,
+              birthCity,
+              birthPostal,
+              isUnitedStatesPerson,
+              unitedStatesTaxIdentificationNumber,
+              ...input
+            } = option.get();
+            onSave({
+              birthInfo: {
+                birthDate,
+                country: birthCountry,
+                city: birthCity,
+                postalCode: birthPostal,
+              },
+              unitedStatesTaxInfo: {
+                isUnitedStatesPerson: isUnitedStatesPerson ?? false,
+                unitedStatesTaxIdentificationNumber: isUnitedStatesPerson
+                  ? unitedStatesTaxIdentificationNumber
+                  : undefined,
+              },
+              ...input,
+            });
+          },
+        });
+      },
+    };
+  });
+
+  const isFirstMount = useFirstMountState();
+
+  const isReadOnly = (value: string | null | undefined) =>
+    isAccountAdmin && isNotNullishOrEmpty(value);
+
+  const { Field, submitForm, FieldsListener, setFieldError, setFieldValue } = useForm({
+    firstName: {
+      initialValue: initialValues?.firstName ?? "",
+      sanitize: trim,
+      validate: validateName,
+    },
+    lastName: {
+      initialValue: initialValues?.lastName ?? "",
+      sanitize: trim,
+      validate: validateName,
+    },
+    nationality: {
+      initialValue: match([initialValues?.nationality, companyCountry, mode] as const)
+        .returnType<CountryCCA3 | undefined>()
+        .with([P.when(isCountryCCA3), P._, P._], ([nationality]) => nationality)
+        .with([P._, P._, "edit"], () => undefined)
+        .with([P._, P.when(isCountryCCA3), P._], ([_, country]) => country)
+        .otherwise(() => "FRA"),
+      validate: validateNullableRequired,
+    },
+    birthDate: {
+      initialValue: initialValues?.birthInfo?.birthDate ?? undefined,
+      validate: validateNullableRequired,
+    },
+    birthCountry: {
+      initialValue: match([initialValues?.birthInfo?.country, companyCountry, mode])
+        .returnType<CountryCCA3 | undefined>()
+        .with([P.when(isCountryCCA3), P._, P._], ([country]) => country)
+        .with([P._, P._, "edit"], () => undefined)
+        .with([P._, P.when(isCountryCCA3), P._], ([_, country]) => country)
+        .otherwise(() => "FRA"),
+      validate: validateNullableRequired,
+    },
+    birthCity: {
+      initialValue: initialValues?.birthInfo?.city ?? "",
+      sanitize: trim,
+      validate: validateRequired,
+    },
+    birthPostal: {
+      initialValue: initialValues?.birthInfo?.postalCode ?? "",
+      sanitize: trim,
+      validate: validateRequired,
+    },
+    sex: {
+      initialValue: initialValues?.sex ?? undefined,
+      validate: validateNullableRequired,
+    },
+    isUnitedStatesPerson: {
+      initialValue:
+        initialValues?.unitedStatesTaxInfo?.isUnitedStatesPerson ??
+        (mode === "add" ? false : undefined),
+      validate: validateBooleanTypeRequired,
+    },
+    unitedStatesTaxIdentificationNumber: {
+      initialValue: initialValues?.unitedStatesTaxInfo?.unitedStatesTaxIdentificationNumber ?? "",
+      sanitize: trim,
+      validate: (value, { getFieldValue }) => {
+        const isRequired = getFieldValue("isUnitedStatesPerson");
+        if (isRequired) {
+          return combineValidators(validateRequired, validateUsaTaxNumber)(value);
+        }
+      },
+    },
+  });
+
+  useEffect(() => {
+    if (isFirstMount) {
+      errors.forEach(({ fieldName, code }) => {
+        const message = getValidationErrorMessage(code);
+        match(fieldName)
+          .with(P.union("firstName", "lastName", "nationality", "sex"), field =>
+            setFieldError(field, message),
+          )
+          .with("birthInfo.birthDate", () => setFieldError("birthDate", message))
+          .with("birthInfo.city", () => setFieldError("birthCity", message))
+          .with("birthInfo.country", () => setFieldError("birthCountry", message))
+          .with("birthInfo.postalCode", () => setFieldError("birthPostal", message))
+          .with("unitedStatesTaxInfo.isUnitedStatesPerson", () =>
+            setFieldError("isUnitedStatesPerson", message),
+          )
+          .with("unitedStatesTaxInfo.unitedStatesTaxIdentificationNumber", () =>
+            setFieldError("unitedStatesTaxIdentificationNumber", message),
+          )
+          .otherwise(() => null);
+      });
+    }
+  }, [errors, isFirstMount, setFieldError]);
+
+  return (
+    <ResponsiveContainer breakpoint={breakpoints.small}>
+      {({ large }) => (
+        <>
+          {isAccountAdmin && (
+            <>
+              <LakeAlert
+                variant="info"
+                title={t("company.step.ownership.modal.alertAccountAdmin")}
+              />
+              <Space height={24} />
+            </>
+          )}
+          <View role="form" style={[styles.grid, large && styles.gridDesktop]}>
+            <LakeLabel
+              label={t("common.fistname")}
+              render={id => (
+                <Field name="firstName">
+                  {({ value, onBlur, valid, onChange, error, ref }) => (
+                    <LakeTextInput
+                      id={id}
+                      ref={ref}
+                      value={value}
+                      error={error}
+                      onBlur={onBlur}
+                      valid={valid}
+                      onChangeText={onChange}
+                      readOnly={isReadOnly(value)}
+                    />
+                  )}
+                </Field>
+              )}
+            />
+            <LakeLabel
+              label={t("common.lastname")}
+              render={id => (
+                <Field name="lastName">
+                  {({ value, onBlur, valid, onChange, error, ref }) => (
+                    <LakeTextInput
+                      id={id}
+                      ref={ref}
+                      value={value}
+                      error={error}
+                      onBlur={onBlur}
+                      valid={valid}
+                      onChangeText={onChange}
+                      readOnly={isReadOnly(value)}
+                    />
+                  )}
+                </Field>
+              )}
+            />
+            <Field name="birthDate">
+              {({ value, onChange, error }) => (
+                <BirthdatePicker
+                  label={t("common.birthdate")}
+                  value={value}
+                  onValueChange={onChange}
+                  error={error}
+                  responsive={false}
+                  readOnly={isReadOnly(value)}
+                />
+              )}
+            </Field>
+
+            <LakeLabel
+              label={t("form.label.birthCountry")}
+              render={id => (
+                <Field name="birthCountry">
+                  {({ value, onChange, error, ref }) => (
+                    <CountryPicker
+                      id={id}
+                      ref={ref}
+                      countries={allCountries}
+                      value={value}
+                      error={error}
+                      onValueChange={onChange}
+                      readOnly={isReadOnly(value)}
+                    />
+                  )}
+                </Field>
+              )}
+            />
+
+            <FieldsListener names={["birthCountry"]}>
+              {({ birthCountry }) => (
+                <Field name="birthCity">
+                  {({ value, error, onChange }) => (
+                    <LakeLabel
+                      label={t("form.label.birthCity")}
+                      render={id => (
+                        <PlacekitCityInput
+                          id={id}
+                          apiKey={__env.CLIENT_PLACEKIT_API_KEY}
+                          error={error}
+                          country={birthCountry.value}
+                          value={value ?? ""}
+                          onValueChange={onChange}
+                          onSuggestion={place => {
+                            onChange(place.city);
+                            if (place.postalCode != null) {
+                              setFieldValue("birthPostal", place.postalCode);
+                            }
+                          }}
+                          onLoadError={identity}
+                          disabled={isReadOnly(value)}
+                        />
+                      )}
+                    />
+                  )}
+                </Field>
+              )}
+            </FieldsListener>
+
+            <Field name="birthPostal">
+              {({ value, valid, error, onChange, ref }) => (
+                <LakeLabel
+                  label={t("form.label.birthPostal")}
+                  render={id => (
+                    <LakeTextInput
+                      id={id}
+                      ref={ref}
+                      value={value}
+                      valid={valid}
+                      error={error}
+                      onChangeText={onChange}
+                      readOnly={isReadOnly(value)}
+                    />
+                  )}
+                />
+              )}
+            </Field>
+
+            <LakeLabel
+              label={t("company.step.ownership.form.genderLabel")}
+              render={id => (
+                <Field name="sex">
+                  {({ value, onChange, ref, error }) => (
+                    <LakeSelect
+                      id={id}
+                      ref={ref}
+                      items={genderItems}
+                      value={value}
+                      onValueChange={onChange}
+                      error={error}
+                      placeholder={t("common.select")}
+                    />
+                  )}
+                </Field>
+              )}
+            />
+
+            <LakeLabel
+              label={t("common.nationality")}
+              render={id => (
+                <Field name="nationality">
+                  {({ value, onChange, error, ref }) => (
+                    <CountryPicker
+                      id={id}
+                      ref={ref}
+                      countries={allCountries}
+                      value={value}
+                      error={error}
+                      onValueChange={onChange}
+                      readOnly={isReadOnly(value)}
+                    />
+                  )}
+                </Field>
+              )}
+            />
+            <LakeLabel
+              label={t("form.label.usaCitizenShort")}
+              render={() => (
+                <Field name="isUnitedStatesPerson">
+                  {({ value, onChange, error }) => (
+                    <RadioGroup
+                      direction="row"
+                      error={error}
+                      items={[
+                        {
+                          name: t("common.yes"),
+                          value: true,
+                        },
+                        {
+                          name: t("common.no"),
+                          value: false,
+                        },
+                      ]}
+                      value={value}
+                      onValueChange={onChange}
+                      disabled={isAccountAdmin && typeof value === "boolean"}
+                    />
+                  )}
+                </Field>
+              )}
+            />
+
+            <FieldsListener names={["isUnitedStatesPerson"]}>
+              {({ isUnitedStatesPerson }) => (
+                <Field name="unitedStatesTaxIdentificationNumber">
+                  {({ value, onBlur, valid, onChange, error, ref }) =>
+                    isUnitedStatesPerson.value ? (
+                      <LakeLabel
+                        label={t("form.label.usaTax")}
+                        render={id => (
+                          <LakeTextInput
+                            id={id}
+                            ref={ref}
+                            value={value}
+                            error={error}
+                            valid={valid}
+                            onBlur={onBlur}
+                            onChangeText={onChange}
+                            placeholder={t("form.label.usaTax.placeholder")}
+                            help={t("form.label.usaTax.help")}
+                            readOnly={isReadOnly(value)}
+                          />
+                        )}
+                      />
+                    ) : null
+                  }
+                </Field>
+              )}
+            </FieldsListener>
+          </View>
+        </>
+      )}
+    </ResponsiveContainer>
+  );
+};
